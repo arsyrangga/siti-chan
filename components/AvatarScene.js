@@ -51,7 +51,7 @@ function VRMAvatar({ jawOpen = 0, onLoaded }) {
 
         scene.add(vrm.scene);
         vrmRef.current = vrm;
-        
+
         if (onLoaded) onLoaded();
         console.log('VRM model loaded successfully');
       },
@@ -135,14 +135,14 @@ function VRMAvatar({ jawOpen = 0, onLoaded }) {
 // Loading spinner shown while VRM loads
 function LoadingIndicator() {
   const meshRef = useRef();
-  
+
   useFrame((state) => {
     if (meshRef.current) {
       meshRef.current.rotation.y = state.clock.getElapsedTime() * 2;
       meshRef.current.rotation.x = Math.sin(state.clock.getElapsedTime()) * 0.3;
     }
   });
-  
+
   return (
     <group position={[0, 1, 0]}>
       <mesh ref={meshRef}>
@@ -160,16 +160,16 @@ function LoadingIndicator() {
 
 export default function AvatarScene({ jawOpen }) {
   const [isLoaded, setIsLoaded] = useState(false);
-  
+
   const handleLoaded = useCallback(() => {
     setIsLoaded(true);
   }, []);
 
   return (
-    <div className="absolute inset-0 w-full h-full">
+    <div className="avatar-canvas-wrapper">
       <Canvas
-        camera={{ position: [0, 1.0, 2.0], fov: 35 }}
-        gl={{ 
+        camera={{ position: [0, 1.0, 3.2], fov: 35 }}
+        gl={{
           antialias: true,
           toneMapping: THREE.ACESFilmicToneMapping,
           toneMappingExposure: 1.2
@@ -191,7 +191,7 @@ export default function AvatarScene({ jawOpen }) {
 
         <OrbitControls
           enableZoom={true}
-          minDistance={0.8}
+          minDistance={0.5}
           maxDistance={5}
           target={[0, 0.8, 0]}
           enablePan={false}
