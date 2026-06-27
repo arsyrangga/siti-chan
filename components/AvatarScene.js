@@ -166,7 +166,7 @@ export default function AvatarScene({ jawOpen }) {
   }, []);
 
   return (
-    <div className="w-full h-full min-h-[400px] relative">
+    <div className="absolute inset-0 w-full h-full">
       <Canvas
         camera={{ position: [0, 1.0, 2.0], fov: 35 }}
         gl={{ 
