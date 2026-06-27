@@ -212,14 +212,14 @@ export default function Home() {
   }, []);
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-between p-4 bg-slate-950 text-white">
-      <div className="w-full max-w-6xl flex flex-col md:flex-row gap-6 mt-4 items-stretch h-[calc(100vh-60px)]">
+    <main className="main-container">
+      <div className="workspace-layout">
         {/* 3D Canvas Panel */}
-        <div className="flex-1 rounded-2xl overflow-hidden bg-slate-900 border border-slate-800 relative min-h-[300px] glass-panel">
+        <div className="avatar-container glass-panel">
           <AvatarScene avatarUrl={avatarUrl} jawOpen={jawOpen} />
         </div>
         {/* Control Console */}
-        <div className="w-full md:w-[450px]">
+        <div className="console-container">
           <ChatConsole
             messages={messages}
             isThinking={isThinking}

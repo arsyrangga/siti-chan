@@ -1,8 +1,34 @@
 'use client';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, useGLTF } from '@react-three/drei';
-import { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, Suspense, Component } from 'react';
 import * as THREE from 'three';
+
+// Standard React Error Boundary to catch Three.js / GLTF loading failures
+class ErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.warn("ErrorBoundary caught a 3D model loading error:", error);
+    if (this.props.onError) {
+      this.props.onError(error);
+    }
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return this.props.fallback;
+    }
+    return this.props.children;
+  }
+}
 
 // Cute robot or anime mannequin mesh fallback
 function DummyAvatar({ jawOpen }) {
@@ -84,6 +110,11 @@ function RealAvatar({ url, jawOpen }) {
 export default function AvatarScene({ avatarUrl, jawOpen }) {
   const [hasError, setHasError] = useState(false);
 
+  // Reset the error state if the user changes the URL
+  useEffect(() => {
+    setHasError(false);
+  }, [avatarUrl]);
+
   return (
     <div className="w-full h-full min-h-[400px] relative">
       <Canvas camera={{ position: [0, 1.5, 2.5], fov: 45 }}>
@@ -92,9 +123,15 @@ export default function AvatarScene({ avatarUrl, jawOpen }) {
         <pointLight position={[-2, 1, 1]} intensity={0.5} />
         
         {avatarUrl && !hasError ? (
-          <group onError={() => setHasError(true)}>
-            <RealAvatar url={avatarUrl} jawOpen={jawOpen} />
-          </group>
+          <ErrorBoundary 
+            key={avatarUrl}
+            fallback={<DummyAvatar jawOpen={jawOpen} />} 
+            onError={() => setHasError(true)}
+          >
+            <Suspense fallback={<DummyAvatar jawOpen={jawOpen} />}>
+              <RealAvatar url={avatarUrl} jawOpen={jawOpen} />
+            </Suspense>
+          </ErrorBoundary>
         ) : (
           <DummyAvatar jawOpen={jawOpen} />
         )}
