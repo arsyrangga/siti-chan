@@ -45,6 +45,10 @@ function VRMAvatar({ jawOpen = 0, onLoaded }) {
           }
         });
 
+        // Scale up the model for better visibility
+        vrm.scene.scale.set(2.5, 2.5, 2.5);
+        vrm.scene.position.set(0, -2.2, 0);
+
         scene.add(vrm.scene);
         vrmRef.current = vrm;
         
@@ -164,7 +168,7 @@ export default function AvatarScene({ jawOpen }) {
   return (
     <div className="w-full h-full min-h-[400px] relative">
       <Canvas
-        camera={{ position: [0, 1.3, 1.5], fov: 30 }}
+        camera={{ position: [0, 1.0, 2.0], fov: 35 }}
         gl={{ 
           antialias: true,
           toneMapping: THREE.ACESFilmicToneMapping,
@@ -188,8 +192,8 @@ export default function AvatarScene({ jawOpen }) {
         <OrbitControls
           enableZoom={true}
           minDistance={0.8}
-          maxDistance={3}
-          target={[0, 1.2, 0]}
+          maxDistance={5}
+          target={[0, 0.8, 0]}
           enablePan={false}
           maxPolarAngle={Math.PI * 0.75}
           minPolarAngle={Math.PI * 0.25}
