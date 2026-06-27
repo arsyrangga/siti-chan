@@ -56,12 +56,23 @@ async def tts(req: TTSRequest):
         if not req.text.strip():
             raise HTTPException(status_code=400, detail="Text cannot be empty")
         
+        # Map short language codes to standard espeak locales
+        lang = req.lang_code.lower()
+        if lang == "a":
+            lang = "en-us"
+        elif lang == "b":
+            lang = "en-gb"
+        elif lang == "j":
+            lang = "ja"
+        elif lang == "z":
+            lang = "zh"
+
         # Generate audio using kokoro-onnx with voice, speed, and language code
         samples, sample_rate = kokoro.create(
             req.text, 
             voice=req.voice, 
             speed=req.speed, 
-            lang=req.lang_code
+            lang=lang
         )
         
         # Write to WAV buffer in memory
