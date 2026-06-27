@@ -13,7 +13,6 @@ export default function Home() {
   
   // Custom states synced with localStorage
   const [currentVoice, setCurrentVoice] = useState('af_bella');
-  const [avatarUrl, setAvatarUrl] = useState('https://models.readyplayer.me/64a2e88a0e8d0e5138241416.glb');
   const [customApiKey, setCustomApiKey] = useState('');
   
   const recognitionRef = useRef(null);
@@ -23,11 +22,9 @@ export default function Home() {
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const storedVoice = localStorage.getItem('siti_chan_voice');
-      const storedAvatar = localStorage.getItem('siti_chan_avatar');
       const storedKey = localStorage.getItem('siti_chan_apikey');
       
       if (storedVoice) setCurrentVoice(storedVoice);
-      if (storedAvatar) setAvatarUrl(storedAvatar);
       if (storedKey) setCustomApiKey(storedKey);
     }
   }, []);
@@ -36,11 +33,6 @@ export default function Home() {
   const handleSetVoice = (val) => {
     setCurrentVoice(val);
     localStorage.setItem('siti_chan_voice', val);
-  };
-
-  const handleSetAvatarUrl = (val) => {
-    setAvatarUrl(val);
-    localStorage.setItem('siti_chan_avatar', val);
   };
 
   const handleSetApiKey = (val) => {
@@ -173,7 +165,6 @@ export default function Home() {
         const average = sum / dataArray.length;
         
         // Map average volume [0, 255] to mouth morph target range [0, 1]
-        // Increase responsiveness multiplier (e.g. * 1.5)
         const mouthOpen = Math.min(1.0, (average / 80) * 1.5);
         setJawOpen(mouthOpen);
         
@@ -216,7 +207,7 @@ export default function Home() {
       <div className="workspace-layout">
         {/* 3D Canvas Panel */}
         <div className="avatar-container glass-panel">
-          <AvatarScene avatarUrl={avatarUrl} jawOpen={jawOpen} />
+          <AvatarScene jawOpen={jawOpen} />
         </div>
         {/* Control Console */}
         <div className="console-container">
@@ -228,8 +219,6 @@ export default function Home() {
             voiceOptions={voiceOptions}
             currentVoice={currentVoice}
             onChangeVoice={handleSetVoice}
-            customAvatarUrl={avatarUrl}
-            setCustomAvatarUrl={handleSetAvatarUrl}
             customApiKey={customApiKey}
             setCustomApiKey={handleSetApiKey}
             onSendMessage={handleSendMessage}

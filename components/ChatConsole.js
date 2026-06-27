@@ -11,8 +11,6 @@ export default function ChatConsole({
   voiceOptions, 
   currentVoice, 
   onChangeVoice, 
-  customAvatarUrl, 
-  setCustomAvatarUrl,
   customApiKey,
   setCustomApiKey
 }) {
@@ -52,16 +50,7 @@ export default function ChatConsole({
       {/* Settings Panel */}
       {showSettings && (
         <div className="settings-panel">
-          <div className="form-group">
-            <label>Ready Player Me GLB URL:</label>
-            <input 
-              type="text" 
-              value={customAvatarUrl} 
-              onChange={(e) => setCustomAvatarUrl(e.target.value)}
-              placeholder="Paste Ready Player Me GLB URL"
-              className="text-input"
-            />
-          </div>
+
 
           <div className="form-group">
             <div className="label-row">
