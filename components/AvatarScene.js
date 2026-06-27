@@ -115,29 +115,40 @@ export default function AvatarScene({ avatarUrl, jawOpen }) {
     setHasError(false);
   }, [avatarUrl]);
 
+  // Fallback view when error occurs
+  const renderFallback = () => (
+    <Canvas camera={{ position: [0, 1.5, 2.5], fov: 45 }}>
+      <ambientLight intensity={1.5} />
+      <directionalLight position={[2, 4, 3]} intensity={1.5} />
+      <pointLight position={[-2, 1, 1]} intensity={0.5} />
+      <DummyAvatar jawOpen={jawOpen} />
+      <OrbitControls enableZoom={true} minDistance={1} maxDistance={5} target={[0, 1.4, 0]} />
+    </Canvas>
+  );
+
   return (
     <div className="w-full h-full min-h-[400px] relative">
-      <Canvas camera={{ position: [0, 1.5, 2.5], fov: 45 }}>
-        <ambientLight intensity={1.5} />
-        <directionalLight position={[2, 4, 3]} intensity={1.5} />
-        <pointLight position={[-2, 1, 1]} intensity={0.5} />
-        
-        {avatarUrl && !hasError ? (
-          <ErrorBoundary 
-            key={avatarUrl}
-            fallback={<DummyAvatar jawOpen={jawOpen} />} 
-            onError={() => setHasError(true)}
-          >
-            <Suspense fallback={<DummyAvatar jawOpen={jawOpen} />}>
+      {avatarUrl && !hasError ? (
+        <ErrorBoundary 
+          key={avatarUrl}
+          fallback={renderFallback()} 
+          onError={() => setHasError(true)}
+        >
+          <Canvas camera={{ position: [0, 1.5, 2.5], fov: 45 }}>
+            <ambientLight intensity={1.5} />
+            <directionalLight position={[2, 4, 3]} intensity={1.5} />
+            <pointLight position={[-2, 1, 1]} intensity={0.5} />
+            
+            <Suspense fallback={null}>
               <RealAvatar url={avatarUrl} jawOpen={jawOpen} />
             </Suspense>
-          </ErrorBoundary>
-        ) : (
-          <DummyAvatar jawOpen={jawOpen} />
-        )}
-        
-        <OrbitControls enableZoom={true} minDistance={1} maxDistance={5} target={[0, 1.4, 0]} />
-      </Canvas>
+            
+            <OrbitControls enableZoom={true} minDistance={1} maxDistance={5} target={[0, 1.4, 0]} />
+          </Canvas>
+        </ErrorBoundary>
+      ) : (
+        renderFallback()
+      )}
     </div>
   );
 }
