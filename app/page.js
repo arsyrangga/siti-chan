@@ -12,11 +12,11 @@ export default function Home() {
   const [jawOpen, setJawOpen] = useState(0);
 
   // Custom states synced with localStorage
-  const [currentVoice, setCurrentVoice] = useState('af_v0irulan');
+  const [currentVoice, setCurrentVoice] = useState('af_sarah');
   const [customApiKey, setCustomApiKey] = useState('');
 
   const recognitionRef = useRef(null);
-  const voiceOptions = ['af_v0irulan', 'af_bella', 'af_sarah', 'am_adam', 'am_michael'];
+  const voiceOptions = ['af_sarah', 'af_bella', 'af_heart', 'af_nicole', 'af_sky', 'am_adam', 'am_michael'];
 
   // Load settings from localStorage on client-side mount
   useEffect(() => {
