@@ -48,6 +48,7 @@ class TTSRequest(BaseModel):
     text: str
     voice: str = "af_bella"
     speed: float = 1.0
+    lang_code: str = "a"
 
 @app.post("/api/tts")
 async def tts(req: TTSRequest):
@@ -55,8 +56,13 @@ async def tts(req: TTSRequest):
         if not req.text.strip():
             raise HTTPException(status_code=400, detail="Text cannot be empty")
         
-        # Generate audio using kokoro-onnx
-        samples, sample_rate = kokoro.create(req.text, voice=req.voice, speed=req.speed)
+        # Generate audio using kokoro-onnx with voice, speed, and language code
+        samples, sample_rate = kokoro.create(
+            req.text, 
+            voice=req.voice, 
+            speed=req.speed, 
+            lang=req.lang_code
+        )
         
         # Write to WAV buffer in memory
         wav_buffer = io.BytesIO()

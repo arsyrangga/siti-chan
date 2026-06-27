@@ -12,11 +12,11 @@ export default function Home() {
   const [jawOpen, setJawOpen] = useState(0);
 
   // Custom states synced with localStorage
-  const [currentVoice, setCurrentVoice] = useState('af_bella');
+  const [currentVoice, setCurrentVoice] = useState('af_v0irulan');
   const [customApiKey, setCustomApiKey] = useState('');
 
   const recognitionRef = useRef(null);
-  const voiceOptions = ['af_bella', 'af_sarah', 'am_adam', 'am_michael'];
+  const voiceOptions = ['af_v0irulan', 'af_bella', 'af_sarah', 'am_adam', 'am_michael'];
 
   // Load settings from localStorage on client-side mount
   useEffect(() => {
@@ -131,7 +131,12 @@ export default function Home() {
       const res = await fetch('http://localhost:8000/api/tts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, voice: currentVoice, speed: 1.0 })
+        body: JSON.stringify({ 
+          text, 
+          voice: currentVoice, 
+          speed: 0.8,
+          lang_code: 'a'
+        })
       });
 
       if (!res.ok) throw new Error("TTS server error");
