@@ -24,7 +24,12 @@ export default function Home() {
       const storedVoice = localStorage.getItem('siti_chan_voice');
       const storedKey = localStorage.getItem('siti_chan_apikey');
 
-      if (storedVoice) setCurrentVoice(storedVoice);
+      if (storedVoice && voiceOptions.includes(storedVoice)) {
+        setCurrentVoice(storedVoice);
+      } else {
+        setCurrentVoice('af_sarah');
+        localStorage.setItem('siti_chan_voice', 'af_sarah');
+      }
       if (storedKey) setCustomApiKey(storedKey);
     }
   }, []);
