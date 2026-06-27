@@ -5,16 +5,16 @@ import ChatConsole from '../components/ChatConsole';
 
 export default function Home() {
   const [messages, setMessages] = useState([
-    { role: 'assistant', content: 'Halo! Aku Siti-Chan. Ketik pesanmu atau ketuk tombol mic untuk mengobrol denganku ya!~' }
+    { role: 'assistant', content: 'Hello! I am Siti-Chan. Type your message or tap the mic button to chat with me!~' }
   ]);
   const [isThinking, setIsThinking] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [jawOpen, setJawOpen] = useState(0);
-  
+
   // Custom states synced with localStorage
   const [currentVoice, setCurrentVoice] = useState('af_bella');
   const [customApiKey, setCustomApiKey] = useState('');
-  
+
   const recognitionRef = useRef(null);
   const voiceOptions = ['af_bella', 'af_sarah', 'am_adam', 'am_michael'];
 
@@ -23,7 +23,7 @@ export default function Home() {
     if (typeof window !== 'undefined') {
       const storedVoice = localStorage.getItem('siti_chan_voice');
       const storedKey = localStorage.getItem('siti_chan_apikey');
-      
+
       if (storedVoice) setCurrentVoice(storedVoice);
       if (storedKey) setCustomApiKey(storedKey);
     }
@@ -48,7 +48,7 @@ export default function Home() {
         const rec = new SpeechRecognition();
         rec.continuous = false;
         rec.interimResults = false;
-        rec.lang = 'id-ID'; // Indonesian voice recognition
+        rec.lang = 'en-US'; // English voice recognition
 
         rec.onstart = () => setIsListening(true);
         rec.onend = () => setIsListening(false);
@@ -87,7 +87,7 @@ export default function Home() {
 
   const handleSendMessage = async (text) => {
     if (isThinking) return;
-    
+
     const newMessages = [...messages, { role: 'user', content: text }];
     setMessages(newMessages);
     setIsThinking(true);
@@ -96,17 +96,17 @@ export default function Home() {
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           messages: newMessages.filter(m => m.role !== 'system'),
-          apiKey: customApiKey 
+          apiKey: customApiKey
         })
       });
-      
+
       const data = await response.json();
       if (data.error) throw new Error(data.error);
 
       setMessages(prev => [...prev, { role: 'assistant', content: data.text }]);
-      
+
       // Trigger speech synthesis
       speakText(data.text);
     } catch (err) {
@@ -135,54 +135,54 @@ export default function Home() {
       });
 
       if (!res.ok) throw new Error("TTS server error");
-      
+
       const audioBlob = await res.blob();
       const audioUrl = URL.createObjectURL(audioBlob);
-      
+
       // Initialize AudioContext on user interaction/first audio playback
       if (!audioContextRef.current) {
         audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
         analyserRef.current = audioContextRef.current.createAnalyser();
         analyserRef.current.fftSize = 64;
       }
-      
+
       const ctx = audioContextRef.current;
       const analyser = analyserRef.current;
-      
+
       // Load and play audio
       const audio = new Audio(audioUrl);
       const source = ctx.createMediaElementSource(audio);
       source.connect(analyser);
       analyser.connect(ctx.destination);
-      
+
       // Web Audio processing loop to update jawOpen morph target influence
       const dataArray = new Uint8Array(analyser.frequencyBinCount);
       const updateLipSync = () => {
         analyser.getByteFrequencyData(dataArray);
-        
+
         // Calculate average volume/amplitude
         const sum = dataArray.reduce((acc, val) => acc + val, 0);
         const average = sum / dataArray.length;
-        
+
         // Map average volume [0, 255] to mouth morph target range [0, 1]
         const mouthOpen = Math.min(1.0, (average / 80) * 1.5);
         setJawOpen(mouthOpen);
-        
+
         animationFrameRef.current = requestAnimationFrame(updateLipSync);
       };
-      
+
       audio.onplay = () => {
         if (ctx.state === 'suspended') {
           ctx.resume();
         }
         updateLipSync();
       };
-      
+
       audio.onended = () => {
         cancelAnimationFrame(animationFrameRef.current);
         setJawOpen(0);
       };
-      
+
       audio.onerror = (e) => {
         console.error("Audio playback error:", e);
         cancelAnimationFrame(animationFrameRef.current);
