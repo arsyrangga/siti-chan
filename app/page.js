@@ -12,11 +12,11 @@ export default function Home() {
   const [jawOpen, setJawOpen] = useState(0);
 
   // Custom states synced with localStorage
-  const [currentVoice, setCurrentVoice] = useState('af_sarah');
+  const [currentVoice, setCurrentVoice] = useState('af_v0irulan');
   const [customApiKey, setCustomApiKey] = useState('');
 
   const recognitionRef = useRef(null);
-  const voiceOptions = ['af_sarah', 'af_bella', 'af_heart', 'af_nicole', 'af_sky', 'am_adam', 'am_michael'];
+  const voiceOptions = ['af_v0irulan', 'af_heart', 'af_bella', 'af_sarah', 'am_adam', 'am_michael'];
 
   // Load settings from localStorage on client-side mount
   useEffect(() => {
@@ -24,12 +24,7 @@ export default function Home() {
       const storedVoice = localStorage.getItem('siti_chan_voice');
       const storedKey = localStorage.getItem('siti_chan_apikey');
 
-      if (storedVoice && voiceOptions.includes(storedVoice)) {
-        setCurrentVoice(storedVoice);
-      } else {
-        setCurrentVoice('af_sarah');
-        localStorage.setItem('siti_chan_voice', 'af_sarah');
-      }
+      if (storedVoice) setCurrentVoice(storedVoice);
       if (storedKey) setCustomApiKey(storedKey);
     }
   }, []);
@@ -132,15 +127,16 @@ export default function Home() {
         cancelAnimationFrame(animationFrameRef.current);
       }
 
-      // Connect to local python backend TTS
-      const res = await fetch('http://localhost:8000/api/tts', {
+      // Connect to local python backend TTS (remsky/Kokoro-FastAPI)
+      const res = await fetch('http://localhost:8880/v1/audio/speech', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          text, 
-          voice: currentVoice, 
-          speed: 0.8,
-          lang_code: 'a'
+        body: JSON.stringify({
+          input: text,
+          voice: currentVoice,
+          model: 'tts-1',
+          response_format: 'wav',
+          speed: 0.8
         })
       });
 
