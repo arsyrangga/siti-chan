@@ -1,0 +1,8 @@
+/* Basic reset and dark background */
+body {
+  background-color: #020617;
+  color: #f8fafc;
+  margin: 0;
+  padding: 0;
+  font-family: sans-serif;
+}
