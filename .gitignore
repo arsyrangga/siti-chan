@@ -27,4 +27,4 @@ backend/*.bin
 .DS_Store
 
 # 3D VRM model files (downloaded at setup)
-public/models/*.vrm
+#public/models/*.vrm

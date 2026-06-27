@@ -168,7 +168,7 @@ export default function AvatarScene({ jawOpen }) {
   return (
     <div className="avatar-canvas-wrapper">
       <Canvas
-        camera={{ position: [0, 1.0, 3.2], fov: 35 }}
+        camera={{ position: [0, 2.0, 5], fov: 35 }}
         gl={{
           antialias: true,
           toneMapping: THREE.ACESFilmicToneMapping,

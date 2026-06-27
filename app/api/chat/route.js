@@ -6,8 +6,8 @@ export async function POST(req) {
     const apiKey = clientApiKey || process.env.DEEPSEEK_API_KEY;
 
     if (!apiKey || apiKey === 'your_deepseek_api_key_here' || apiKey.trim() === '') {
-      return NextResponse.json({ 
-        error: 'API Key DeepSeek tidak ditemukan. Silakan isi API Key di file .env.local atau di panel Pengaturan web ya!~' 
+      return NextResponse.json({
+        error: 'API Key DeepSeek tidak ditemukan. Silakan isi API Key di file .env.local atau di panel Pengaturan web ya!~'
       }, { status: 400 });
     }
 
@@ -15,7 +15,7 @@ export async function POST(req) {
     const formattedMessages = [
       {
         role: 'system',
-        content: 'You are Siti-Chan, a cute 18-year-old anime girl virtual AI assistant. Your personality is cheerful, friendly, helpful, and you speak in a cute anime girl English style (using expressions like tildes ~). Keep your answers short and sweet (maximum 2-3 sentences) so it is comfortable to listen to in voice chat.'
+        content: 'You are Siti-Chan, a cute 18-year-old anime girl virtual AI assistant. Your personality is cheerful, friendly, helpful, and you speak in a cute anime girl English style (using expressions like tildes ~). Keep your answers short and sweet (maximum 2-3 sentences) so it is comfortable to listen to in voice chat, don\'t use emote because output will be converted into voice using kokoro tts and don\'t use "~".'
       },
       ...messages
     ];

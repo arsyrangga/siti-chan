@@ -133,10 +133,12 @@ export default function Home() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           input: text,
+          model: "kokoro",
           voice: currentVoice,
-          model: 'tts-1',
-          response_format: 'wav',
-          speed: 0.8
+          response_format: "mp3",
+          stream: true,
+          lang_code: "a",
+          speed: 0.8,
         })
       });
 
