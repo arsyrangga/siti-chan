@@ -33,10 +33,8 @@
   ```text
   fastapi==0.111.0
   uvicorn==0.30.1
-  kokoro-onnx==0.2.0
+  kokoro-onnx==0.5.0
   soundfile==0.12.1
-  numpy==1.26.4
-  onnxruntime==1.18.0
   httpx==0.27.0
   pytest==8.2.2
   ```
@@ -51,14 +49,13 @@
   # We will import the app from main
   from main import app
 
-  client = TestClient(app)
-
   def test_tts_endpoint():
-      # Verify endpoint returns audio/wav stream
-      response = client.post("/api/tts", json={"text": "Hello world", "voice": "af_bella"})
-      assert response.status_code == 200
-      assert response.headers["content-type"] == "audio/wav"
-      assert len(response.content) > 0
+      # Verify endpoint returns audio/wav stream by running within the client's lifespan context manager
+      with TestClient(app) as client:
+          response = client.post("/api/tts", json={"text": "Hello world", "voice": "af_bella"})
+          assert response.status_code == 200
+          assert response.headers["content-type"] == "audio/wav"
+          assert len(response.content) > 0
   ```
 
 - [ ] **Step 3: Run the test to verify it fails**
@@ -88,10 +85,10 @@
       allow_headers=["*"],
   )
 
-  MODEL_URL = "https://github.com/theonlynoodle/kokoro-onnx/releases/download/v0.2.0/kokoro-v0_19.onnx"
-  VOICES_URL = "https://github.com/theonlynoodle/kokoro-onnx/releases/download/v0.2.0/voices.json"
-  MODEL_PATH = "kokoro-v0_19.onnx"
-  VOICES_PATH = "voices.json"
+  MODEL_URL = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx"
+  VOICES_URL = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin"
+  MODEL_PATH = "kokoro-v1.0.onnx"
+  VOICES_PATH = "voices-v1.0.bin"
 
   def download_file(url, path):
       if not os.path.exists(path):
