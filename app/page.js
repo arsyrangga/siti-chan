@@ -125,10 +125,91 @@ export default function Home() {
     }
   };
 
+  const audioContextRef = useRef(null);
+  const analyserRef = useRef(null);
+  const animationFrameRef = useRef(null);
+
   const speakText = async (text) => {
-    // Stub for speech playback logic, will be fully implemented in Task 5
-    console.log(`TTS synthesis requested for: "${text}" with voice "${currentVoice}"`);
+    try {
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+
+      // Connect to local python backend TTS
+      const res = await fetch('http://localhost:8000/api/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, voice: currentVoice, speed: 1.0 })
+      });
+
+      if (!res.ok) throw new Error("TTS server error");
+      
+      const audioBlob = await res.blob();
+      const audioUrl = URL.createObjectURL(audioBlob);
+      
+      // Initialize AudioContext on user interaction/first audio playback
+      if (!audioContextRef.current) {
+        audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+        analyserRef.current = audioContextRef.current.createAnalyser();
+        analyserRef.current.fftSize = 64;
+      }
+      
+      const ctx = audioContextRef.current;
+      const analyser = analyserRef.current;
+      
+      // Load and play audio
+      const audio = new Audio(audioUrl);
+      const source = ctx.createMediaElementSource(audio);
+      source.connect(analyser);
+      analyser.connect(ctx.destination);
+      
+      // Web Audio processing loop to update jawOpen morph target influence
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      const updateLipSync = () => {
+        analyser.getByteFrequencyData(dataArray);
+        
+        // Calculate average volume/amplitude
+        const sum = dataArray.reduce((acc, val) => acc + val, 0);
+        const average = sum / dataArray.length;
+        
+        // Map average volume [0, 255] to mouth morph target range [0, 1]
+        // Increase responsiveness multiplier (e.g. * 1.5)
+        const mouthOpen = Math.min(1.0, (average / 80) * 1.5);
+        setJawOpen(mouthOpen);
+        
+        animationFrameRef.current = requestAnimationFrame(updateLipSync);
+      };
+      
+      audio.onplay = () => {
+        if (ctx.state === 'suspended') {
+          ctx.resume();
+        }
+        updateLipSync();
+      };
+      
+      audio.onended = () => {
+        cancelAnimationFrame(animationFrameRef.current);
+        setJawOpen(0);
+      };
+      
+      audio.onerror = (e) => {
+        console.error("Audio playback error:", e);
+        cancelAnimationFrame(animationFrameRef.current);
+        setJawOpen(0);
+      };
+
+      await audio.play();
+    } catch (err) {
+      console.error("Failing to playback speech:", err);
+    }
   };
+
+  // Clean up animation frames on unmount
+  useEffect(() => {
+    return () => {
+      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+    };
+  }, []);
 
   return (
     <main className="flex min-h-screen flex-col items-center justify-between p-4 bg-slate-950 text-white">
