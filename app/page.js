@@ -180,17 +180,53 @@ export default function Home() {
       source.connect(analyser);
       analyser.connect(ctx.destination);
 
-      // Web Audio processing loop to update jawOpen morph target influence
+      // Web Audio processing loop — frequency-band lip sync
       const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      let smoothedLow = 0;
+      let smoothedMid = 0;
+      let smoothedHigh = 0;
+      let prevTime = performance.now();
+
       const updateLipSync = () => {
+        const now = performance.now();
+        const frameDt = Math.min((now - prevTime) / 1000, 0.05);
+        prevTime = now;
+
         analyser.getByteFrequencyData(dataArray);
+        const binCount = dataArray.length;
 
-        // Calculate average volume/amplitude
-        const sum = dataArray.reduce((acc, val) => acc + val, 0);
-        const average = sum / dataArray.length;
+        // Split frequency spectrum into 3 bands
+        const lowEnd = Math.floor(binCount * 0.25);
+        const midEnd = Math.floor(binCount * 0.6);
 
-        // Map average volume [0, 255] to mouth morph target range [0, 1]
-        const mouthOpen = Math.min(1.0, (average / 80) * 1.5);
+        let lowSum = 0, midSum = 0, highSum = 0;
+        for (let i = 0; i < binCount; i++) {
+          if (i < lowEnd) lowSum += dataArray[i];
+          else if (i < midEnd) midSum += dataArray[i];
+          else highSum += dataArray[i];
+        }
+
+        const rawLow = lowSum / (lowEnd || 1) / 255;
+        const rawMid = midSum / ((midEnd - lowEnd) || 1) / 255;
+        const rawHigh = highSum / ((binCount - midEnd) || 1) / 255;
+
+        // Envelope follower: fast attack, slower release
+        const attack = 12;
+        const release = 6;
+        const envLerp = (cur, raw) => {
+          const rate = raw > cur ? attack : release;
+          return cur + (raw - cur) * Math.min(1, frameDt * rate);
+        };
+        smoothedLow = envLerp(smoothedLow, rawLow);
+        smoothedMid = envLerp(smoothedMid, rawMid);
+        smoothedHigh = envLerp(smoothedHigh, rawHigh);
+
+        // Map to mouth opening (0-1) with a more dynamic range
+        const vowelOpen = Math.min(1.0, smoothedLow * 2.2);
+        const consonant = Math.min(1.0, smoothedMid * 2.5);
+        // Blend: vowels drive wide open, consonants add tightness variation
+        const mouthOpen = Math.min(1.0, vowelOpen * 0.7 + consonant * 0.3);
+
         setJawOpen(mouthOpen);
 
         animationFrameRef.current = requestAnimationFrame(updateLipSync);
