@@ -44,9 +44,6 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.05);
   position: relative;
   min-height: 350px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
 
 .console-container {
