@@ -5,7 +5,12 @@ import ChatConsole from '../components/ChatConsole';
 
 export default function Home() {
   const [messages, setMessages] = useState([
-    { role: 'assistant', content: 'Hello! I am Siti-Chan. Type your message or tap the mic button to chat with me!~' }
+    {
+      id: 'init',
+      role: 'assistant',
+      content: 'Hello! I am Siti-Chan. Type your message or tap the mic button to chat with me!~',
+      displayedContent: 'Hello! I am Siti-Chan. Type your message or tap the mic button to chat with me!~'
+    }
   ]);
   const [isThinking, setIsThinking] = useState(false);
   const [isListening, setIsListening] = useState(false);
@@ -88,7 +93,8 @@ export default function Home() {
   const handleSendMessage = async (text) => {
     if (isThinking) return;
 
-    const newMessages = [...messages, { role: 'user', content: text }];
+    const userMsg = { id: `user-${Date.now()}`, role: 'user', content: text, displayedContent: text };
+    const newMessages = [...messages, userMsg];
     setMessages(newMessages);
     setIsThinking(true);
 
@@ -97,7 +103,7 @@ export default function Home() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          messages: newMessages.filter(m => m.role !== 'system'),
+          messages: newMessages.filter(m => m.role !== 'system').map(m => ({ role: m.role, content: m.content })),
           apiKey: customApiKey
         })
       });
@@ -105,14 +111,15 @@ export default function Home() {
       const data = await response.json();
       if (data.error) throw new Error(data.error);
 
-      setMessages(prev => [...prev, { role: 'assistant', content: data.text }]);
+      const assistantMsgId = `assistant-${Date.now()}`;
+      setMessages(prev => [...prev, { id: assistantMsgId, role: 'assistant', content: data.text, displayedContent: '' }]);
 
       // Trigger speech synthesis
-      speakText(data.text);
+      await speakText(data.text, assistantMsgId);
     } catch (err) {
       console.error(err);
-      setMessages(prev => [...prev, { role: 'assistant', content: `${err.message}` }]);
-    } finally {
+      const errorMsgId = `error-${Date.now()}`;
+      setMessages(prev => [...prev, { id: errorMsgId, role: 'assistant', content: `${err.message}`, displayedContent: `${err.message}` }]);
       setIsThinking(false);
     }
   };
@@ -120,11 +127,20 @@ export default function Home() {
   const audioContextRef = useRef(null);
   const analyserRef = useRef(null);
   const animationFrameRef = useRef(null);
+  const audioRef = useRef(null);
+  const typingIntervalRef = useRef(null);
 
-  const speakText = async (text) => {
+  const speakText = async (text, msgId) => {
     try {
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
+      }
+      if (typingIntervalRef.current) {
+        clearInterval(typingIntervalRef.current);
+      }
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.src = "";
       }
 
       // Connect to local python backend TTS (remsky/Kokoro-FastAPI)
@@ -159,6 +175,7 @@ export default function Home() {
 
       // Load and play audio
       const audio = new Audio(audioUrl);
+      audioRef.current = audio;
       const source = ctx.createMediaElementSource(audio);
       source.connect(analyser);
       analyser.connect(ctx.destination);
@@ -184,29 +201,82 @@ export default function Home() {
           ctx.resume();
         }
         updateLipSync();
+
+        // Stop loading state as audio playback officially begins
+        setIsThinking(false);
+
+        // Start typing sync
+        let duration = audio.duration;
+        if (isNaN(duration) || !isFinite(duration) || duration <= 0) {
+          duration = text.length * 0.06; // Fallback estimate
+        }
+        const charInterval = (duration * 1000) / text.length;
+        let currentLen = 0;
+
+        typingIntervalRef.current = setInterval(() => {
+          currentLen++;
+          setMessages(prev => prev.map(m => {
+            if (m.id === msgId) {
+              return { ...m, displayedContent: text.slice(0, currentLen) };
+            }
+            return m;
+          }));
+
+          if (currentLen >= text.length) {
+            clearInterval(typingIntervalRef.current);
+          }
+        }, charInterval);
       };
 
       audio.onended = () => {
+        if (typingIntervalRef.current) {
+          clearInterval(typingIntervalRef.current);
+        }
+        setMessages(prev => prev.map(m => {
+          if (m.id === msgId) {
+            return { ...m, displayedContent: text };
+          }
+          return m;
+        }));
         cancelAnimationFrame(animationFrameRef.current);
         setJawOpen(0);
       };
 
       audio.onerror = (e) => {
         console.error("Audio playback error:", e);
+        if (typingIntervalRef.current) {
+          clearInterval(typingIntervalRef.current);
+        }
+        setMessages(prev => prev.map(m => {
+          if (m.id === msgId) {
+            return { ...m, displayedContent: text };
+          }
+          return m;
+        }));
         cancelAnimationFrame(animationFrameRef.current);
         setJawOpen(0);
+        setIsThinking(false);
       };
 
       await audio.play();
     } catch (err) {
       console.error("Failing to playback speech:", err);
+      // Fallback text output on failure
+      setMessages(prev => prev.map(m => {
+        if (m.id === msgId) {
+          return { ...m, displayedContent: text };
+        }
+        return m;
+      }));
+      setIsThinking(false);
     }
   };
 
-  // Clean up animation frames on unmount
+  // Clean up animation frames and intervals on unmount
   useEffect(() => {
     return () => {
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+      if (typingIntervalRef.current) clearInterval(typingIntervalRef.current);
     };
   }, []);
 

@@ -1,51 +1,82 @@
-# Siti-Chan: 3D Talking AI Companion
+# Siti-Chan: 3D Talking AI Companion 🌸
 
-Website interaktif karakter 3D anime yang bisa berbicara menggunakan kecerdasan buatan (DeepSeek LLM) dan suara lokal (Kokoro TTS).
+Website interaktif karakter 3D anime yang bisa berbicara menggunakan kecerdasan buatan (DeepSeek LLM) dan suara lokal berkualitas tinggi berbasis PyTorch (**Kokoro-FastAPI**).
 
-## Prasyarat
-1. Node.js (versi 18+)
-2. Python (versi 3.10 hingga 3.12 direkomendasikan)
-3. Pyenv (opsional, jika Anda ingin menyamakan versi Python)
+---
 
-## Langkah Instalasi & Menjalankan
+## 🚀 Fitur Utama
+- **Interaksi 3D VRoid**: Avatar 3D responsif (`siti-chan.vrm`) dengan fov kamera dinamis, animasi berkedip, gerak tubuh santai, dan lip-sync (gerakan bibir) yang sinkron dengan audio suara.
+- **DeepSeek Intelligence**: Chatbot cerdas yang merespons secara langsung (text streaming) dengan gaya kepribadian ceria anime.
+- **Local TTS (Kokoro-FastAPI)**: Sintesis suara teks-ke-suara lokal berbasis PyTorch. Mendukung akselerasi GPU (MPS) pada macOS, suara yang terdengar sangat alami, serta kontrol kecepatan (`speed: 0.8`) dan model suara (`af_v0irulan`).
+- **Input Suara (STT)**: Berbicara langsung menggunakan mikrofon Anda dengan fitur deteksi ucapan otomatis.
 
-### 1. Jalankan Backend (Kokoro TTS)
+---
+
+## 🛠️ Prasyarat Sistem
+1. **Node.js**: Versi 18 ke atas.
+2. **Python**: Versi 3.10 hingga 3.12 (disarankan menggunakan Python 3.12 untuk menghindari bug linker library Python 3.14 bawaan Homebrew macOS).
+3. **eSpeak-ng**: Diperlukan untuk phonemization suara di backend Kokoro.
+   - **macOS**: `brew install espeak`
+
+---
+
+## 💻 Langkah Instalasi & Menjalankan
+
+### 1. Setup & Jalankan Backend (Kokoro-FastAPI)
+Backend menggunakan fork PyTorch Kokoro yang cepat, kompatibel dengan OpenAI API format, dan mendukung akselerasi GPU lokal macOS.
+
 ```bash
-# Masuk ke folder backend
-cd backend
+# 1. Masuk ke direktori backend baru
+cd backend/kokoro-fastapi
 
-# Buat virtual environment
-python3 -m venv venv
+# 2. Buat virtual environment menggunakan Python 3.12
+/Users/steradian/.pyenv/versions/3.12.13/bin/python3.12 -m venv venv
+
+# 3. Aktifkan virtual environment
 source venv/bin/activate
 
-# Install library pendukung
-pip install -r requirements.txt
+# 4. Install dependency backend secara lokal
+pip install -e .
 
-# Jalankan server FastAPI
-python main.py
+# 5. Unduh model weights Kokoro v1.0 (sekitar 340MB)
+./venv/bin/python docker/scripts/download_model.py --output api/src/models/v1_0
+
+# 6. Jalankan backend server menggunakan skrip startup
+./start_backend.sh
 ```
-*Catatan: Pada saat pertama kali dijalankan, server akan mengunduh model ONNX Kokoro-v1.0 (sekitar 310MB) dan voices-v1.0.bin (sekitar 22MB) secara otomatis ke dalam folder `backend/`. Tunggu hingga proses unduhan selesai dan muncul pesan bahwa server FastAPI berjalan di `http://localhost:8000`.*
+*Catatan: Server uvicorn backend akan berjalan di `http://localhost:8880` dengan total 68 voice packs ter-load otomatis.*
 
-### 2. Jalankan Frontend (Next.js)
-Dari folder root proyek (`siti-chan`), buka terminal baru lalu jalankan perintah berikut:
+---
+
+### 2. Setup & Jalankan Frontend (Next.js)
+Dari folder root proyek (`siti-chan`), jalankan perintah berikut:
 
 ```bash
-# Buat file .env.local untuk menyimpan API Key DeepSeek Anda
-echo "DEEPSEEK_API_KEY=isi_dengan_api_key_anda" > .env.local
+# 1. Buat file konfig .env.local untuk API Key DeepSeek
+echo "DEEPSEEK_API_KEY=sk-xxxx" > .env.local
 
-# Install dependency frontend
+# 2. Install dependency Next.js & R3F
 npm install
 
-# Jalankan Next.js dev server
+# 3. Bersihkan cache & jalankan Next.js development server
+rm -rf .next
 npm run dev
 ```
+*Aplikasi frontend akan terbuka secara otomatis di `http://localhost:3000`.*
 
-Buka `http://localhost:3000` di Google Chrome atau Safari.
+---
 
-## Cara Menggunakan
-1. **Chat melalui Teks**: Ketik di kolom input teks bagian bawah kanan, lalu klik tombol kirim atau tekan Enter.
-2. **Chat melalui Suara (Voice Input)**: Klik tombol Mikrofon bulat di bawah kanan (akan berkedip merah), katakan pesan Anda, dan sistem akan mengirimkannya secara otomatis setelah Anda selesai berbicara.
-3. **Pengaturan Karakter**: Klik tombol Gerigi di pojok kanan atas panel chat untuk membuka opsi pengaturan:
-   - **Ganti Model 3D**: Anda dapat menempelkan URL avatar GLB Ready Player Me Anda sendiri.
-   - **Ganti Suara**: Tersedia opsi suara wanita (`af_bella`, `af_sarah`) dan pria (`am_adam`, `am_michael`).
-   - **Custom API Key**: Jika Anda tidak menyetel `DEEPSEEK_API_KEY` di file `.env.local`, Anda bisa memasukkannya langsung secara aman melalui UI panel pengaturan ini (disimpan di browser Anda).
+## ⚙️ Detail Konfigurasi Tambahan
+
+### Parameter Suara
+Untuk hasil suara maksimal, frontend mengirim payload OpenAI standar ke port `8880` dengan konfigurasi:
+- **Voice**: `af_v0irulan`
+- **Speed**: `0.8`
+- **Lang Code**: `a` (English - US)
+- **Response Format**: `mp3`
+
+### Posisi Kamera Canvas 3D
+Posisi kamera Canvas diatur di [AvatarScene.js](file:///Users/steradian/terminal/ai/siti-chan/components/AvatarScene.js) agar tampilan terfokus secara pas di kepala dan bahu model VRM:
+```javascript
+camera={{ position: [0, 2.0, 5], fov: 35 }}
+```

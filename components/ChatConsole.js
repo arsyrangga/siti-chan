@@ -89,13 +89,23 @@ export default function ChatConsole({
 
       {/* Message Log */}
       <div className="message-log">
-        {messages.map((msg, index) => (
-          <div key={index} className={`message-row ${msg.role === 'user' ? 'user' : 'assistant'}`}>
-            <div className={`message-bubble ${msg.role === 'user' ? 'user' : 'assistant'}`}>
-              <p>{msg.content}</p>
+        {messages.map((msg, index) => {
+          const textToShow = msg.role === 'assistant' 
+            ? (msg.displayedContent !== undefined ? msg.displayedContent : msg.content) 
+            : msg.content;
+          
+          if (msg.role === 'assistant' && textToShow === '') {
+            return null;
+          }
+
+          return (
+            <div key={msg.id || index} className={`message-row ${msg.role === 'user' ? 'user' : 'assistant'}`}>
+              <div className={`message-bubble ${msg.role === 'user' ? 'user' : 'assistant'}`}>
+                <p>{textToShow}</p>
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
         {isThinking && (
           <div className="message-row assistant">
             <div className="message-bubble assistant thinking-bubble">
