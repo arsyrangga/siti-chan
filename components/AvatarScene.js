@@ -1,343 +1,195 @@
 'use client';
-import { Canvas, useFrame } from '@react-three/fiber';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
-import React, { useRef, useMemo } from 'react';
+import React, { useRef, useState, useEffect, Suspense, useCallback } from 'react';
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader';
+import { VRMLoaderPlugin, VRMUtils, VRMExpressionPresetName } from '@pixiv/three-vrm';
 
 /* ─────────────────────────────────────────────
-   Kawaii Anime Girl – procedural Three.js avatar
-   Features: idle sway, breathing, eye blinking,
-   head tilt, lip-sync via jawOpen prop
+   VRM Anime Avatar Loader
+   Loads a VRM model (VRoid Studio anime style)
+   with idle animation, eye blinking, and lip-sync
    ───────────────────────────────────────────── */
 
-function KawaiiAvatar({ jawOpen = 0 }) {
-  const groupRef = useRef();
-  const headGroupRef = useRef();
-  const jawRef = useRef();
-  const leftEyeLidRef = useRef();
-  const rightEyeLidRef = useRef();
-  const leftPupilRef = useRef();
-  const rightPupilRef = useRef();
-  const bodyRef = useRef();
-  const hairBackRef = useRef();
-  const blushLeftRef = useRef();
-  const blushRightRef = useRef();
+function VRMAvatar({ jawOpen = 0, onLoaded }) {
+  const vrmRef = useRef(null);
+  const mixerRef = useRef(null);
+  const clockRef = useRef(new THREE.Clock());
+  const { scene } = useThree();
 
-  // Skin & palette
-  const skin = '#ffe0d0';
-  const hairColor = '#ff69b4';
-  const hairDark = '#d44a8f';
-  const eyeColor = '#6a0dad';
-  const dressColor = '#7c3aed';
-  const dressDark = '#5b21b6';
-  const ribbonColor = '#f472b6';
-  const blushColor = '#ffb3c6';
-  const lipColor = '#e8457a';
-  const shoeColor = '#1e1e2e';
-  const white = '#ffffff';
-  const black = '#1a1a2e';
+  useEffect(() => {
+    const loader = new GLTFLoader();
+    loader.register((parser) => new VRMLoaderPlugin(parser));
 
-  // Materials (memoised so they don't recreate every frame)
-  const mats = useMemo(() => ({
-    skin: new THREE.MeshStandardMaterial({ color: skin, roughness: 0.55, metalness: 0.0 }),
-    hair: new THREE.MeshStandardMaterial({ color: hairColor, roughness: 0.4, metalness: 0.05 }),
-    hairDark: new THREE.MeshStandardMaterial({ color: hairDark, roughness: 0.45 }),
-    eye: new THREE.MeshStandardMaterial({ color: eyeColor, roughness: 0.15, metalness: 0.1 }),
-    eyeWhite: new THREE.MeshStandardMaterial({ color: white, roughness: 0.3 }),
-    pupil: new THREE.MeshStandardMaterial({ color: black, roughness: 0.1 }),
-    sparkle: new THREE.MeshStandardMaterial({ color: white, emissive: white, emissiveIntensity: 0.8, roughness: 0 }),
-    dress: new THREE.MeshStandardMaterial({ color: dressColor, roughness: 0.35, metalness: 0.05 }),
-    dressDark: new THREE.MeshStandardMaterial({ color: dressDark, roughness: 0.4 }),
-    ribbon: new THREE.MeshStandardMaterial({ color: ribbonColor, roughness: 0.3 }),
-    blush: new THREE.MeshStandardMaterial({ color: blushColor, transparent: true, opacity: 0.45, roughness: 0.6 }),
-    lip: new THREE.MeshStandardMaterial({ color: lipColor, roughness: 0.35 }),
-    shoe: new THREE.MeshStandardMaterial({ color: shoeColor, roughness: 0.5 }),
-    eyelid: new THREE.MeshStandardMaterial({ color: skin, roughness: 0.55, side: THREE.DoubleSide }),
-  }), []);
+    loader.load(
+      '/models/siti-chan.vrm',
+      (gltf) => {
+        const vrm = gltf.userData.vrm;
+        if (!vrm) return;
 
-  useFrame((state) => {
+        // Optimize VRM scene
+        VRMUtils.removeUnnecessaryVertices(gltf.scene);
+        VRMUtils.removeUnnecessaryJoints(gltf.scene);
+
+        // Rotate VRM to face camera (VRM models face +Z by default)
+        VRMUtils.rotateVRM0(vrm);
+
+        // Set up materials for anime toon look
+        vrm.scene.traverse((obj) => {
+          if (obj.isMesh) {
+            obj.frustumCulled = false;
+            if (obj.material) {
+              obj.material.side = THREE.DoubleSide;
+            }
+          }
+        });
+
+        scene.add(vrm.scene);
+        vrmRef.current = vrm;
+        
+        if (onLoaded) onLoaded();
+        console.log('VRM model loaded successfully');
+      },
+      (progress) => {
+        const pct = (progress.loaded / progress.total) * 100;
+        console.log(`Loading VRM: ${pct.toFixed(1)}%`);
+      },
+      (error) => {
+        console.error('Error loading VRM:', error);
+      }
+    );
+
+    return () => {
+      if (vrmRef.current) {
+        scene.remove(vrmRef.current.scene);
+        vrmRef.current = null;
+      }
+    };
+  }, [scene, onLoaded]);
+
+  useFrame((state, delta) => {
+    if (!vrmRef.current) return;
+    const vrm = vrmRef.current;
     const t = state.clock.getElapsedTime();
 
-    // --- Idle sway (whole body gentle rock) ---
-    if (groupRef.current) {
-      groupRef.current.rotation.z = Math.sin(t * 0.8) * 0.03;
-      groupRef.current.position.y = Math.sin(t * 1.2) * 0.02;
+    // Update VRM (springs, etc.)
+    vrm.update(delta);
+
+    // ─── Idle Breathing ───
+    const hips = vrm.humanoid?.getNormalizedBoneNode('hips');
+    if (hips) {
+      hips.position.y = hips.position.y + Math.sin(t * 1.5) * 0.0003;
     }
 
-    // --- Head bob & tilt ---
-    if (headGroupRef.current) {
-      headGroupRef.current.rotation.z = Math.sin(t * 0.6) * 0.05;
-      headGroupRef.current.rotation.x = Math.sin(t * 0.9) * 0.03;
-      headGroupRef.current.position.y = Math.sin(t * 1.5) * 0.015 + 0.72;
+    // ─── Head subtle movement ───
+    const head = vrm.humanoid?.getNormalizedBoneNode('head');
+    if (head) {
+      head.rotation.x = Math.sin(t * 0.8) * 0.03;
+      head.rotation.z = Math.sin(t * 0.5) * 0.02;
     }
 
-    // --- Breathing (body scale Y) ---
-    if (bodyRef.current) {
-      bodyRef.current.scale.y = 1 + Math.sin(t * 2.0) * 0.012;
+    // ─── Eye Blinking ───
+    const blinkCycle = t % 4.5;
+    const isBlinking = blinkCycle > 4.0 && blinkCycle < 4.2;
+    if (vrm.expressionManager) {
+      vrm.expressionManager.setValue(VRMExpressionPresetName.Blink, isBlinking ? 1.0 : 0.0);
     }
 
-    // --- Eye blinking (periodic) ---
-    const blinkCycle = t % 4;
-    const isBlinking = blinkCycle > 3.7 && blinkCycle < 3.9;
-    const lidScale = isBlinking ? 1.0 : 0.0;
-    if (leftEyeLidRef.current) leftEyeLidRef.current.scale.y = lidScale;
-    if (rightEyeLidRef.current) rightEyeLidRef.current.scale.y = lidScale;
-
-    // --- Pupil micro-movement ---
-    const px = Math.sin(t * 0.7) * 0.008;
-    const py = Math.cos(t * 1.1) * 0.005;
-    if (leftPupilRef.current) {
-      leftPupilRef.current.position.x = -0.12 + px;
-      leftPupilRef.current.position.y = 0.07 + py;
-    }
-    if (rightPupilRef.current) {
-      rightPupilRef.current.position.x = 0.12 + px;
-      rightPupilRef.current.position.y = 0.07 + py;
+    // ─── Lip Sync (jawOpen prop) ───
+    if (vrm.expressionManager && jawOpen > 0.01) {
+      // Use 'aa' expression for mouth open (standard VRM expression)
+      vrm.expressionManager.setValue(VRMExpressionPresetName.Aa, Math.min(1.0, jawOpen * 1.5));
+      // Add slight 'oh' for rounder mouth at medium opening
+      vrm.expressionManager.setValue(VRMExpressionPresetName.Oh, Math.min(0.5, jawOpen * 0.6));
+    } else if (vrm.expressionManager) {
+      vrm.expressionManager.setValue(VRMExpressionPresetName.Aa, 0);
+      vrm.expressionManager.setValue(VRMExpressionPresetName.Oh, 0);
     }
 
-    // --- Hair sway ---
-    if (hairBackRef.current) {
-      hairBackRef.current.rotation.x = Math.sin(t * 1.0) * 0.06 + 0.1;
+    // ─── Idle expression: slight smile ───
+    if (vrm.expressionManager && jawOpen < 0.05) {
+      vrm.expressionManager.setValue(VRMExpressionPresetName.Happy, 0.2 + Math.sin(t * 0.7) * 0.05);
+    } else if (vrm.expressionManager) {
+      vrm.expressionManager.setValue(VRMExpressionPresetName.Happy, 0);
     }
 
-    // --- Blush pulse ---
-    const blushOpacity = 0.35 + Math.sin(t * 2.5) * 0.1;
-    if (blushLeftRef.current) blushLeftRef.current.material.opacity = blushOpacity;
-    if (blushRightRef.current) blushRightRef.current.material.opacity = blushOpacity;
-
-    // --- Mouth lip-sync ---
-    if (jawRef.current) {
-      jawRef.current.scale.y = 0.6 + jawOpen * 2.5;
-      jawRef.current.position.y = -0.16 - jawOpen * 0.025;
+    // ─── Arm pose (slight natural hang) ───
+    const leftUpperArm = vrm.humanoid?.getNormalizedBoneNode('leftUpperArm');
+    const rightUpperArm = vrm.humanoid?.getNormalizedBoneNode('rightUpperArm');
+    if (leftUpperArm) {
+      leftUpperArm.rotation.z = 1.1 + Math.sin(t * 0.6) * 0.02;
+    }
+    if (rightUpperArm) {
+      rightUpperArm.rotation.z = -1.1 - Math.sin(t * 0.6) * 0.02;
     }
   });
 
+  return null; // VRM is added directly to the scene
+}
+
+// Loading spinner shown while VRM loads
+function LoadingIndicator() {
+  const meshRef = useRef();
+  
+  useFrame((state) => {
+    if (meshRef.current) {
+      meshRef.current.rotation.y = state.clock.getElapsedTime() * 2;
+      meshRef.current.rotation.x = Math.sin(state.clock.getElapsedTime()) * 0.3;
+    }
+  });
+  
   return (
-    <group ref={groupRef} position={[0, -0.3, 0]} scale={1.4}>
-
-      {/* ====== BODY ====== */}
-      <group ref={bodyRef}>
-        {/* Torso */}
-        <mesh position={[0, 0.05, 0]} material={mats.skin}>
-          <cylinderGeometry args={[0.12, 0.14, 0.3, 24]} />
-        </mesh>
-
-        {/* Dress - upper */}
-        <mesh position={[0, -0.05, 0]} material={mats.dress}>
-          <cylinderGeometry args={[0.14, 0.16, 0.22, 24]} />
-        </mesh>
-
-        {/* Dress - skirt (cone) */}
-        <mesh position={[0, -0.32, 0]} material={mats.dress}>
-          <coneGeometry args={[0.32, 0.45, 24, 1, true]} />
-        </mesh>
-
-        {/* Dress - skirt frills / highlight ring */}
-        <mesh position={[0, -0.52, 0]} material={mats.ribbon}>
-          <torusGeometry args={[0.30, 0.018, 8, 32]} />
-        </mesh>
-
-        {/* Ribbon bow on chest */}
-        <mesh position={[0, 0.12, 0.13]} material={mats.ribbon}>
-          <boxGeometry args={[0.12, 0.06, 0.03]} />
-        </mesh>
-        <mesh position={[-0.07, 0.13, 0.13]} rotation={[0, 0, 0.4]} material={mats.ribbon}>
-          <boxGeometry args={[0.06, 0.03, 0.02]} />
-        </mesh>
-        <mesh position={[0.07, 0.13, 0.13]} rotation={[0, 0, -0.4]} material={mats.ribbon}>
-          <boxGeometry args={[0.06, 0.03, 0.02]} />
-        </mesh>
-
-        {/* Arms */}
-        <mesh position={[-0.19, 0.0, 0]} rotation={[0, 0, 0.25]} material={mats.skin}>
-          <capsuleGeometry args={[0.035, 0.22, 8, 16]} />
-        </mesh>
-        <mesh position={[0.19, 0.0, 0]} rotation={[0, 0, -0.25]} material={mats.skin}>
-          <capsuleGeometry args={[0.035, 0.22, 8, 16]} />
-        </mesh>
-
-        {/* Dress sleeves (puffy) */}
-        <mesh position={[-0.16, 0.08, 0]} material={mats.dress}>
-          <sphereGeometry args={[0.06, 16, 16]} />
-        </mesh>
-        <mesh position={[0.16, 0.08, 0]} material={mats.dress}>
-          <sphereGeometry args={[0.06, 16, 16]} />
-        </mesh>
-
-        {/* Legs */}
-        <mesh position={[-0.08, -0.62, 0]} material={mats.skin}>
-          <capsuleGeometry args={[0.04, 0.2, 8, 16]} />
-        </mesh>
-        <mesh position={[0.08, -0.62, 0]} material={mats.skin}>
-          <capsuleGeometry args={[0.04, 0.2, 8, 16]} />
-        </mesh>
-
-        {/* Shoes */}
-        <mesh position={[-0.08, -0.78, 0.02]} material={mats.shoe}>
-          <boxGeometry args={[0.06, 0.04, 0.1]} />
-        </mesh>
-        <mesh position={[0.08, -0.78, 0.02]} material={mats.shoe}>
-          <boxGeometry args={[0.06, 0.04, 0.1]} />
-        </mesh>
-      </group>
-
-      {/* ====== HEAD GROUP ====== */}
-      <group ref={headGroupRef} position={[0, 0.72, 0]}>
-
-        {/* Head sphere */}
-        <mesh material={mats.skin}>
-          <sphereGeometry args={[0.22, 32, 32]} />
-        </mesh>
-
-        {/* ---- EYES ---- */}
-        {/* Left eye white */}
-        <mesh position={[-0.12, 0.04, 0.17]} material={mats.eyeWhite}>
-          <sphereGeometry args={[0.055, 24, 24]} />
-        </mesh>
-        {/* Left iris */}
-        <mesh position={[-0.12, 0.04, 0.215]} material={mats.eye}>
-          <circleGeometry args={[0.04, 24]} />
-        </mesh>
-        {/* Left pupil */}
-        <mesh ref={leftPupilRef} position={[-0.12, 0.07, 0.222]} material={mats.pupil}>
-          <circleGeometry args={[0.02, 16]} />
-        </mesh>
-        {/* Left sparkle (top-right) */}
-        <mesh position={[-0.10, 0.065, 0.225]} material={mats.sparkle}>
-          <circleGeometry args={[0.008, 8]} />
-        </mesh>
-        {/* Left sparkle (bottom-left, smaller) */}
-        <mesh position={[-0.135, 0.035, 0.225]} material={mats.sparkle}>
-          <circleGeometry args={[0.005, 8]} />
-        </mesh>
-
-        {/* Right eye white */}
-        <mesh position={[0.12, 0.04, 0.17]} material={mats.eyeWhite}>
-          <sphereGeometry args={[0.055, 24, 24]} />
-        </mesh>
-        {/* Right iris */}
-        <mesh position={[0.12, 0.04, 0.215]} material={mats.eye}>
-          <circleGeometry args={[0.04, 24]} />
-        </mesh>
-        {/* Right pupil */}
-        <mesh ref={rightPupilRef} position={[0.12, 0.07, 0.222]} material={mats.pupil}>
-          <circleGeometry args={[0.02, 16]} />
-        </mesh>
-        {/* Right sparkle */}
-        <mesh position={[0.14, 0.065, 0.225]} material={mats.sparkle}>
-          <circleGeometry args={[0.008, 8]} />
-        </mesh>
-        <mesh position={[0.105, 0.035, 0.225]} material={mats.sparkle}>
-          <circleGeometry args={[0.005, 8]} />
-        </mesh>
-
-        {/* ---- EYELIDS (for blinking) ---- */}
-        <mesh ref={leftEyeLidRef} position={[-0.12, 0.06, 0.218]} scale={[1, 0, 1]} material={mats.eyelid}>
-          <planeGeometry args={[0.12, 0.11]} />
-        </mesh>
-        <mesh ref={rightEyeLidRef} position={[0.12, 0.06, 0.218]} scale={[1, 0, 1]} material={mats.eyelid}>
-          <planeGeometry args={[0.12, 0.11]} />
-        </mesh>
-
-        {/* ---- BLUSH ---- */}
-        <mesh ref={blushLeftRef} position={[-0.16, -0.02, 0.16]} rotation={[0, -0.4, 0]} material={mats.blush}>
-          <circleGeometry args={[0.035, 16]} />
-        </mesh>
-        <mesh ref={blushRightRef} position={[0.16, -0.02, 0.16]} rotation={[0, 0.4, 0]} material={mats.blush}>
-          <circleGeometry args={[0.035, 16]} />
-        </mesh>
-
-        {/* ---- MOUTH ---- */}
-        <mesh ref={jawRef} position={[0, -0.06, 0.20]} material={mats.lip}>
-          <capsuleGeometry args={[0.018, 0.035, 4, 12]} />
-        </mesh>
-
-        {/* Nose (tiny bump) */}
-        <mesh position={[0, 0.0, 0.22]} material={mats.skin}>
-          <sphereGeometry args={[0.012, 12, 12]} />
-        </mesh>
-
-        {/* ---- HAIR ---- */}
-        {/* Hair top (dome) */}
-        <mesh position={[0, 0.08, -0.01]} material={mats.hair}>
-          <sphereGeometry args={[0.24, 32, 32, 0, Math.PI * 2, 0, Math.PI * 0.55]} />
-        </mesh>
-
-        {/* Hair bangs (front fringe) */}
-        <mesh position={[0, 0.12, 0.15]} rotation={[0.3, 0, 0]} material={mats.hair}>
-          <boxGeometry args={[0.38, 0.08, 0.08]} />
-        </mesh>
-        {/* Bangs — side tufts left */}
-        <mesh position={[-0.18, 0.06, 0.12]} rotation={[0.2, 0.3, 0.15]} material={mats.hair}>
-          <boxGeometry args={[0.08, 0.1, 0.06]} />
-        </mesh>
-        {/* Bangs — side tufts right */}
-        <mesh position={[0.18, 0.06, 0.12]} rotation={[0.2, -0.3, -0.15]} material={mats.hair}>
-          <boxGeometry args={[0.08, 0.1, 0.06]} />
-        </mesh>
-
-        {/* Hair side — left long strand */}
-        <mesh position={[-0.22, -0.08, 0.02]} material={mats.hair}>
-          <capsuleGeometry args={[0.04, 0.35, 8, 16]} />
-        </mesh>
-        {/* Hair side — right long strand */}
-        <mesh position={[0.22, -0.08, 0.02]} material={mats.hair}>
-          <capsuleGeometry args={[0.04, 0.35, 8, 16]} />
-        </mesh>
-
-        {/* Hair back (long flowing) */}
-        <group ref={hairBackRef} position={[0, -0.05, -0.12]}>
-          <mesh material={mats.hair}>
-            <capsuleGeometry args={[0.16, 0.5, 12, 24]} />
-          </mesh>
-          {/* Hair back darker inner layer */}
-          <mesh position={[0, 0.05, 0.04]} material={mats.hairDark}>
-            <capsuleGeometry args={[0.12, 0.4, 8, 16]} />
-          </mesh>
-        </group>
-
-        {/* ---- HAIR ACCESSORIES ---- */}
-        {/* Ribbon / hair clip */}
-        <mesh position={[-0.18, 0.16, 0.0]} rotation={[0, 0, 0.3]} material={mats.ribbon}>
-          <boxGeometry args={[0.10, 0.06, 0.04]} />
-        </mesh>
-        <mesh position={[-0.22, 0.18, 0.0]} rotation={[0, 0, 0.6]} material={mats.ribbon}>
-          <boxGeometry args={[0.06, 0.03, 0.03]} />
-        </mesh>
-        <mesh position={[-0.14, 0.18, 0.0]} rotation={[0, 0, -0.1]} material={mats.ribbon}>
-          <boxGeometry args={[0.06, 0.03, 0.03]} />
-        </mesh>
-
-        {/* Ears (small bumps behind hair) */}
-        <mesh position={[-0.21, 0.02, 0.0]} material={mats.skin}>
-          <sphereGeometry args={[0.03, 12, 12]} />
-        </mesh>
-        <mesh position={[0.21, 0.02, 0.0]} material={mats.skin}>
-          <sphereGeometry args={[0.03, 12, 12]} />
-        </mesh>
-      </group>
-
+    <group position={[0, 1, 0]}>
+      <mesh ref={meshRef}>
+        <torusGeometry args={[0.2, 0.05, 16, 32]} />
+        <meshStandardMaterial color="#f472b6" emissive="#f472b6" emissiveIntensity={0.5} />
+      </mesh>
+      {/* Small static spheres */}
+      <mesh position={[0, -0.4, 0]}>
+        <sphereGeometry args={[0.03, 16, 16]} />
+        <meshStandardMaterial color="#a78bfa" emissive="#a78bfa" emissiveIntensity={0.4} />
+      </mesh>
     </group>
   );
 }
 
 export default function AvatarScene({ jawOpen }) {
+  const [isLoaded, setIsLoaded] = useState(false);
+  
+  const handleLoaded = useCallback(() => {
+    setIsLoaded(true);
+  }, []);
+
   return (
     <div className="w-full h-full min-h-[400px] relative">
-      <Canvas camera={{ position: [0, 0.5, 1.8], fov: 40 }}>
-        {/* Soft lighting setup */}
-        <ambientLight intensity={1.2} color="#ffe8f0" />
-        <directionalLight position={[3, 5, 4]} intensity={1.4} color="#ffffff" />
-        <directionalLight position={[-2, 3, 2]} intensity={0.6} color="#dab3ff" />
-        <pointLight position={[0, 1, 2]} intensity={0.4} color="#ffb3d9" />
+      <Canvas
+        camera={{ position: [0, 1.3, 1.5], fov: 30 }}
+        gl={{ 
+          antialias: true,
+          toneMapping: THREE.ACESFilmicToneMapping,
+          toneMappingExposure: 1.2
+        }}
+      >
+        {/* Soft anime-style lighting */}
+        <ambientLight intensity={1.8} color="#fff5f9" />
+        <directionalLight position={[3, 5, 4]} intensity={1.6} color="#ffffff" castShadow />
+        <directionalLight position={[-3, 3, 2]} intensity={0.7} color="#e8d5ff" />
+        <pointLight position={[0, 2, 3]} intensity={0.5} color="#ffd6e8" />
+        {/* Rim light for anime glow effect */}
+        <pointLight position={[0, 1.5, -2]} intensity={0.4} color="#b388ff" />
 
-        <KawaiiAvatar jawOpen={jawOpen} />
+        <Suspense fallback={<LoadingIndicator />}>
+          <VRMAvatar jawOpen={jawOpen} onLoaded={handleLoaded} />
+        </Suspense>
+
+        {!isLoaded && <LoadingIndicator />}
 
         <OrbitControls
           enableZoom={true}
-          minDistance={1}
-          maxDistance={4}
-          target={[0, 0.3, 0]}
+          minDistance={0.8}
+          maxDistance={3}
+          target={[0, 1.2, 0]}
           enablePan={false}
           maxPolarAngle={Math.PI * 0.75}
           minPolarAngle={Math.PI * 0.25}

@@ -25,3 +25,6 @@ backend/*.bin
 
 # macOS system files
 .DS_Store
+
+# 3D VRM model files (downloaded at setup)
+public/models/*.vrm
