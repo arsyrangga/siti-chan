@@ -1,0 +1,27 @@
+# Next.js build and dependencies
+node_modules/
+.next/
+out/
+build/
+
+# Local env files
+.env*.local
+
+# Pyenv
+.python-version
+
+# Python virtual environment and cache
+venv/
+backend/venv/
+__pycache__/
+backend/__pycache__/
+*.pyc
+
+# 3D ONNX model files & large binary voice assets
+backend/*.onnx
+backend/*.bin
+*.onnx
+*.bin
+
+# macOS system files
+.DS_Store
