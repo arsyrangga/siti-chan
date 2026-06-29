@@ -1,84 +1,433 @@
-'use client';
-import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { OrbitControls } from '@react-three/drei';
-import React, { useRef, useState, useEffect, Suspense, useCallback } from 'react';
-import * as THREE from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader';
-import { VRMLoaderPlugin, VRMUtils, VRMExpressionPresetName } from '@pixiv/three-vrm';
+// AvatarScene.js – Rewritten with professional conversational animation system
+"use client";
 
-/* ─────────────────────────────────────────────
-   VRM Anime Avatar Loader
-   Loads a VRM model (VRoid Studio anime style)
-   with idle animation, eye blinking, and lip-sync
-   ───────────────────────────────────────────── */
+import React, { useRef, useEffect, useState, useCallback, useMemo, Suspense } from "react";
+import { Canvas, useThree, useFrame } from "@react-three/fiber";
+import { OrbitControls } from "@react-three/drei";
+import * as THREE from "three";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader";
+import { VRMLoaderPlugin, VRMUtils, VRMExpressionPresetName } from "@pixiv/three-vrm";
 
+/*** Utility: layered organic noise (non‑repeating) ***/
+const noise = (time, freq, phase = 0) =>
+  Math.sin(time * freq + phase) * 0.5 +
+  Math.sin(time * freq * 1.618 + phase + 1.3) * 0.3 +
+  Math.sin(time * freq * 2.317 + phase + 2.7) * 0.2;
+
+/*** GestureEngine – state machine for conversational gestures ***/
+class GestureEngine {
+  constructor() {
+    this.leftState = "Idle";
+    this.rightState = "Idle";
+    this.leftTimer = 0;
+    this.rightTimer = 0;
+    this.leftNextChange = this._interval();
+    this.rightNextChange = this._interval();
+    this.blendSpeed = 2.5; // smooth visible transitions
+    this.time = 0;
+
+    // Reusable temp quaternion for noise overlay
+    this._tmpQ = new THREE.Quaternion();
+    this._tmpE = new THREE.Euler();
+
+    // Initialize both current and target to Idle pose with INDEPENDENT quaternion objects
+    const idle = GestureEngine.Gestures.Idle;
+    this.current = {
+      leftShoulder: new THREE.Quaternion(),
+      leftUpper: new THREE.Quaternion().setFromEuler(idle.leftUpper),
+      leftLower: new THREE.Quaternion().setFromEuler(idle.leftLower),
+      leftHand: new THREE.Quaternion().setFromEuler(idle.leftHand),
+      rightShoulder: new THREE.Quaternion(),
+      rightUpper: new THREE.Quaternion().setFromEuler(idle.rightUpper),
+      rightLower: new THREE.Quaternion().setFromEuler(idle.rightLower),
+      rightHand: new THREE.Quaternion().setFromEuler(idle.rightHand),
+    };
+    this.target = {
+      leftShoulder: new THREE.Quaternion(),
+      leftUpper: new THREE.Quaternion().setFromEuler(idle.leftUpper),
+      leftLower: new THREE.Quaternion().setFromEuler(idle.leftLower),
+      leftHand: new THREE.Quaternion().setFromEuler(idle.leftHand),
+      rightShoulder: new THREE.Quaternion(),
+      rightUpper: new THREE.Quaternion().setFromEuler(idle.rightUpper),
+      rightLower: new THREE.Quaternion().setFromEuler(idle.rightLower),
+      rightHand: new THREE.Quaternion().setFromEuler(idle.rightHand),
+    };
+  }
+
+  /*
+   * 12 natural conversation gestures.
+   * VRM normalized bone conventions (T-pose):
+   *   leftUpperArm  Z > 0 = arm DOWN (toward body), Z ~ 1.25 = resting
+   *   rightUpperArm Z < 0 = arm DOWN (toward body), Z ~ -1.25 = resting
+   *   Z values closer to 0 = arm raised outward
+   *
+   * SAFE RANGE to avoid chest clipping:
+   *   Left  Z:  0.75 .. 1.30   (never below 0.75)
+   *   Right Z: -1.30 .. -0.75  (never above -0.75)
+   */
+  static Gestures = {
+    Idle: {
+      leftShoulder:  new THREE.Euler(0, 0, 0),
+      leftUpper:     new THREE.Euler(0.08, 0, 1.25),
+      leftLower:     new THREE.Euler(-0.12, 0.15, 0),
+      leftHand:      new THREE.Euler(0, 0, 0),
+      rightShoulder: new THREE.Euler(0, 0, 0),
+      rightUpper:    new THREE.Euler(0.08, 0, -1.25),
+      rightLower:    new THREE.Euler(-0.12, -0.15, 0),
+      rightHand:     new THREE.Euler(0, 0, 0),
+    },
+    // Both palms open, presenting something
+    OpenPalmPresent: {
+      leftShoulder:  new THREE.Euler(0, 0, -0.05),
+      leftUpper:     new THREE.Euler(0.35, -0.25, 0.85),
+      leftLower:     new THREE.Euler(-0.45, 0.65, 0),
+      leftHand:      new THREE.Euler(-0.15, 0.2, 0.1),
+      rightShoulder: new THREE.Euler(0, 0, 0.05),
+      rightUpper:    new THREE.Euler(0.35, 0.25, -0.85),
+      rightLower:    new THREE.Euler(-0.45, -0.65, 0),
+      rightHand:     new THREE.Euler(-0.15, -0.2, -0.1),
+    },
+    // Right hand gesturing, left relaxed
+    RightExplain: {
+      leftShoulder:  new THREE.Euler(0, 0, 0),
+      leftUpper:     new THREE.Euler(0.1, 0, 1.2),
+      leftLower:     new THREE.Euler(-0.15, 0.2, 0),
+      leftHand:      new THREE.Euler(0, 0.05, 0),
+      rightShoulder: new THREE.Euler(0, 0, 0.06),
+      rightUpper:    new THREE.Euler(0.45, 0.15, -0.80),
+      rightLower:    new THREE.Euler(-0.50, -0.70, 0),
+      rightHand:     new THREE.Euler(-0.1, -0.25, -0.15),
+    },
+    // Left hand gesturing, right relaxed
+    LeftExplain: {
+      leftShoulder:  new THREE.Euler(0, 0, -0.06),
+      leftUpper:     new THREE.Euler(0.45, -0.15, 0.80),
+      leftLower:     new THREE.Euler(-0.50, 0.70, 0),
+      leftHand:      new THREE.Euler(-0.1, 0.25, 0.15),
+      rightShoulder: new THREE.Euler(0, 0, 0),
+      rightUpper:    new THREE.Euler(0.1, 0, -1.2),
+      rightLower:    new THREE.Euler(-0.15, -0.2, 0),
+      rightHand:     new THREE.Euler(0, -0.05, 0),
+    },
+    // Both hands slightly raised, emphasizing a point
+    Emphasize: {
+      leftShoulder:  new THREE.Euler(0, 0, -0.04),
+      leftUpper:     new THREE.Euler(0.40, -0.10, 0.90),
+      leftLower:     new THREE.Euler(-0.40, 0.55, 0),
+      leftHand:      new THREE.Euler(-0.20, 0.15, 0),
+      rightShoulder: new THREE.Euler(0, 0, 0.04),
+      rightUpper:    new THREE.Euler(0.40, 0.10, -0.90),
+      rightLower:    new THREE.Euler(-0.40, -0.55, 0),
+      rightHand:     new THREE.Euler(-0.20, -0.15, 0),
+    },
+    // Light shrug – shoulders up, forearms out
+    Shrug: {
+      leftShoulder:  new THREE.Euler(0, 0, -0.10),
+      leftUpper:     new THREE.Euler(0.15, -0.10, 0.95),
+      leftLower:     new THREE.Euler(-0.30, 0.45, 0),
+      leftHand:      new THREE.Euler(0, 0.2, 0.15),
+      rightShoulder: new THREE.Euler(0, 0, 0.10),
+      rightUpper:    new THREE.Euler(0.15, 0.10, -0.95),
+      rightLower:    new THREE.Euler(-0.30, -0.45, 0),
+      rightHand:     new THREE.Euler(0, -0.2, -0.15),
+    },
+    // One hand near chin, thinking
+    ThinkRight: {
+      leftShoulder:  new THREE.Euler(0, 0, 0),
+      leftUpper:     new THREE.Euler(0.1, 0, 1.20),
+      leftLower:     new THREE.Euler(-0.15, 0.18, 0),
+      leftHand:      new THREE.Euler(0, 0, 0),
+      rightShoulder: new THREE.Euler(0, 0, 0.04),
+      rightUpper:    new THREE.Euler(0.55, 0.20, -0.78),
+      rightLower:    new THREE.Euler(-0.65, -0.80, 0),
+      rightHand:     new THREE.Euler(-0.10, -0.10, 0),
+    },
+    // Gentle agree nod hands
+    AgreeGesture: {
+      leftShoulder:  new THREE.Euler(0, 0, -0.03),
+      leftUpper:     new THREE.Euler(0.30, -0.10, 0.95),
+      leftLower:     new THREE.Euler(-0.35, 0.50, 0),
+      leftHand:      new THREE.Euler(-0.10, 0.10, 0),
+      rightShoulder: new THREE.Euler(0, 0, 0.03),
+      rightUpper:    new THREE.Euler(0.25, 0.05, -1.05),
+      rightLower:    new THREE.Euler(-0.20, -0.30, 0),
+      rightHand:     new THREE.Euler(0, -0.05, 0),
+    },
+    // Hands out to the side, "I don't know"
+    UncertainOpen: {
+      leftShoulder:  new THREE.Euler(0, 0, -0.08),
+      leftUpper:     new THREE.Euler(0.20, -0.15, 0.80),
+      leftLower:     new THREE.Euler(-0.25, 0.35, 0),
+      leftHand:      new THREE.Euler(0, 0.30, 0.20),
+      rightShoulder: new THREE.Euler(0, 0, 0.08),
+      rightUpper:    new THREE.Euler(0.20, 0.15, -0.80),
+      rightLower:    new THREE.Euler(-0.25, -0.35, 0),
+      rightHand:     new THREE.Euler(0, -0.30, -0.20),
+    },
+    // Right hand counting/listing
+    ListPoints: {
+      leftShoulder:  new THREE.Euler(0, 0, 0),
+      leftUpper:     new THREE.Euler(0.10, 0, 1.18),
+      leftLower:     new THREE.Euler(-0.15, 0.20, 0),
+      leftHand:      new THREE.Euler(0, 0, 0),
+      rightShoulder: new THREE.Euler(0, 0, 0.05),
+      rightUpper:    new THREE.Euler(0.50, 0.12, -0.82),
+      rightLower:    new THREE.Euler(-0.55, -0.65, 0),
+      rightHand:     new THREE.Euler(-0.20, -0.30, 0),
+    },
+    // Calm down / settling gesture
+    CalmSettle: {
+      leftShoulder:  new THREE.Euler(0, 0, -0.03),
+      leftUpper:     new THREE.Euler(0.25, -0.08, 0.95),
+      leftLower:     new THREE.Euler(-0.30, 0.40, 0),
+      leftHand:      new THREE.Euler(-0.25, 0.10, 0),
+      rightShoulder: new THREE.Euler(0, 0, 0.03),
+      rightUpper:    new THREE.Euler(0.25, 0.08, -0.95),
+      rightLower:    new THREE.Euler(-0.30, -0.40, 0),
+      rightHand:     new THREE.Euler(-0.25, -0.10, 0),
+    },
+    // Excited / welcoming – arms wider
+    Welcome: {
+      leftShoulder:  new THREE.Euler(0, 0, -0.06),
+      leftUpper:     new THREE.Euler(0.30, -0.20, 0.78),
+      leftLower:     new THREE.Euler(-0.35, 0.50, 0),
+      leftHand:      new THREE.Euler(-0.10, 0.20, 0.10),
+      rightShoulder: new THREE.Euler(0, 0, 0.06),
+      rightUpper:    new THREE.Euler(0.30, 0.20, -0.78),
+      rightLower:    new THREE.Euler(-0.35, -0.50, 0),
+      rightHand:     new THREE.Euler(-0.10, -0.20, -0.10),
+    },
+    // Contemplative – left hand touching opposite elbow area
+    Contemplative: {
+      leftShoulder:  new THREE.Euler(0, 0, -0.02),
+      leftUpper:     new THREE.Euler(0.30, -0.05, 1.0),
+      leftLower:     new THREE.Euler(-0.40, 0.55, 0),
+      leftHand:      new THREE.Euler(-0.05, 0.10, 0),
+      rightShoulder: new THREE.Euler(0, 0, 0.02),
+      rightUpper:    new THREE.Euler(0.20, 0.05, -1.10),
+      rightLower:    new THREE.Euler(-0.18, -0.22, 0),
+      rightHand:     new THREE.Euler(0, -0.05, 0),
+    },
+  };
+
+  _interval() {
+    return 0.6 + Math.random() * 1.2; // 0.6–1.8 s
+  }
+
+  _pickLeftGesture() {
+    const keys = Object.keys(GestureEngine.Gestures).filter(k => k !== "Idle");
+    const name = keys[Math.floor(Math.random() * keys.length)];
+    this.leftState = name;
+    const d = GestureEngine.Gestures[name];
+    this.target.leftShoulder.setFromEuler(d.leftShoulder);
+    this.target.leftUpper.setFromEuler(d.leftUpper);
+    this.target.leftLower.setFromEuler(d.leftLower);
+    this.target.leftHand.setFromEuler(d.leftHand);
+    this.leftTimer = 0;
+    this.leftNextChange = this._interval();
+  }
+
+  _pickRightGesture() {
+    const keys = Object.keys(GestureEngine.Gestures).filter(k => k !== "Idle");
+    const name = keys[Math.floor(Math.random() * keys.length)];
+    this.rightState = name;
+    const d = GestureEngine.Gestures[name];
+    this.target.rightShoulder.setFromEuler(d.rightShoulder);
+    this.target.rightUpper.setFromEuler(d.rightUpper);
+    this.target.rightLower.setFromEuler(d.rightLower);
+    this.target.rightHand.setFromEuler(d.rightHand);
+    this.rightTimer = 0;
+    this.rightNextChange = this._interval();
+  }
+
+  _setIdleLeft() {
+    const d = GestureEngine.Gestures.Idle;
+    this.target.leftShoulder.setFromEuler(d.leftShoulder);
+    this.target.leftUpper.setFromEuler(d.leftUpper);
+    this.target.leftLower.setFromEuler(d.leftLower);
+    this.target.leftHand.setFromEuler(d.leftHand);
+    this.leftState = "Idle";
+  }
+
+  _setIdleRight() {
+    const d = GestureEngine.Gestures.Idle;
+    this.target.rightShoulder.setFromEuler(d.rightShoulder);
+    this.target.rightUpper.setFromEuler(d.rightUpper);
+    this.target.rightLower.setFromEuler(d.rightLower);
+    this.target.rightHand.setFromEuler(d.rightHand);
+    this.rightState = "Idle";
+  }
+
+  update(delta, speakingWeight) {
+    this.time += delta;
+
+    if (speakingWeight < 0.02) {
+      // Return to idle
+      if (this.leftState !== "Idle") this._setIdleLeft();
+      if (this.rightState !== "Idle") this._setIdleRight();
+    } else {
+      // Independent left/right arm gesture timing
+      this.leftTimer += delta;
+      this.rightTimer += delta;
+      if (this.leftTimer >= this.leftNextChange) this._pickLeftGesture();
+      if (this.rightTimer >= this.rightNextChange) this._pickRightGesture();
+    }
+
+    // Smooth quaternion blending with exponential decay
+    const blend = 1 - Math.exp(-this.blendSpeed * delta);
+    this.current.leftShoulder.slerp(this.target.leftShoulder, blend);
+    this.current.leftUpper.slerp(this.target.leftUpper, blend);
+    this.current.leftLower.slerp(this.target.leftLower, blend);
+    this.current.leftHand.slerp(this.target.leftHand, blend);
+    this.current.rightShoulder.slerp(this.target.rightShoulder, blend);
+    this.current.rightUpper.slerp(this.target.rightUpper, blend);
+    this.current.rightLower.slerp(this.target.rightLower, blend);
+    this.current.rightHand.slerp(this.target.rightHand, blend);
+  }
+
+  /** Apply blended rotations + micro-noise overlay to VRM bones */
+  applyToVRM(vrm, speakingWeight) {
+    const ls = vrm.humanoid?.getNormalizedBoneNode("leftShoulder");
+    const lu = vrm.humanoid?.getNormalizedBoneNode("leftUpperArm");
+    const ll = vrm.humanoid?.getNormalizedBoneNode("leftLowerArm");
+    const lh = vrm.humanoid?.getNormalizedBoneNode("leftHand");
+    const rs = vrm.humanoid?.getNormalizedBoneNode("rightShoulder");
+    const ru = vrm.humanoid?.getNormalizedBoneNode("rightUpperArm");
+    const rl = vrm.humanoid?.getNormalizedBoneNode("rightLowerArm");
+    const rh = vrm.humanoid?.getNormalizedBoneNode("rightHand");
+
+    // Micro-noise for organic feel (small additive rotations)
+    const sw = Math.min(speakingWeight, 1);
+    const t = this.time;
+    const mn = (freq, phase) => noise(t, freq, phase) * 0.025 * sw; // subtle
+
+    if (ls) ls.quaternion.copy(this.current.leftShoulder);
+    if (lu) {
+      lu.quaternion.copy(this.current.leftUpper);
+      // Add micro-noise on top
+      this._tmpE.set(mn(0.7, 0), mn(0.5, 1), mn(0.3, 2));
+      this._tmpQ.setFromEuler(this._tmpE);
+      lu.quaternion.multiply(this._tmpQ);
+    }
+    if (ll) {
+      ll.quaternion.copy(this.current.leftLower);
+      this._tmpE.set(mn(0.8, 3), mn(0.6, 4), 0);
+      this._tmpQ.setFromEuler(this._tmpE);
+      ll.quaternion.multiply(this._tmpQ);
+    }
+    if (lh) {
+      lh.quaternion.copy(this.current.leftHand);
+      this._tmpE.set(mn(1.0, 5), mn(0.9, 6), mn(0.7, 7));
+      this._tmpQ.setFromEuler(this._tmpE);
+      lh.quaternion.multiply(this._tmpQ);
+    }
+    if (rs) rs.quaternion.copy(this.current.rightShoulder);
+    if (ru) {
+      ru.quaternion.copy(this.current.rightUpper);
+      this._tmpE.set(mn(0.65, 8), mn(0.45, 9), mn(0.35, 10));
+      this._tmpQ.setFromEuler(this._tmpE);
+      ru.quaternion.multiply(this._tmpQ);
+    }
+    if (rl) {
+      rl.quaternion.copy(this.current.rightLower);
+      this._tmpE.set(mn(0.75, 11), mn(0.55, 12), 0);
+      this._tmpQ.setFromEuler(this._tmpE);
+      rl.quaternion.multiply(this._tmpQ);
+    }
+    if (rh) {
+      rh.quaternion.copy(this.current.rightHand);
+      this._tmpE.set(mn(0.95, 13), mn(0.85, 14), mn(0.65, 15));
+      this._tmpQ.setFromEuler(this._tmpE);
+      rh.quaternion.multiply(this._tmpQ);
+    }
+  }
+}
+
+/*** PostureEngine – breathing, sway, head bob, nodding ***/
+class PostureEngine {
+  constructor() {
+    this.time = 0;
+    this.breathSpeed = 0.2;
+    this.swaySpeed = 0.07;
+    this.headBobSpeed = 1.1;
+    this.nodSpeed = 3.5;
+    this.nodPhase = 0;
+    this.nodActive = false;
+    this.nodTimer = 0;
+  }
+
+  update(delta, speakingWeight, pointer) {
+    this.time += delta;
+    const breath = Math.sin(this.time * Math.PI * this.breathSpeed) * 0.015;
+    const sway = Math.sin(this.time * this.swaySpeed) * 0.008;
+    const bob = Math.sin(this.time * this.headBobSpeed) * 0.005;
+    this.breath = breath;
+    this.sway = sway;
+    this.bob = bob;
+    if (speakingWeight > 0.6 && !this.nodActive) {
+      this.nodActive = true;
+      this.nodTimer = 0;
+    }
+    if (this.nodActive) {
+      this.nodTimer += delta;
+      const phase = Math.min(this.nodTimer * this.nodSpeed, Math.PI);
+      this.nodPhase = Math.sin(phase) * 0.12;
+      if (phase >= Math.PI) this.nodActive = false;
+    } else {
+      this.nodPhase = 0;
+    }
+  }
+
+  applyToVRM(vrm) {
+    const spine = vrm.humanoid?.getNormalizedBoneNode("spine");
+    const chest = vrm.humanoid?.getNormalizedBoneNode("chest");
+    if (spine) spine.rotation.x = this.breath;
+    if (chest) chest.rotation.z = this.sway;
+    const head = vrm.humanoid?.getNormalizedBoneNode("head");
+    if (head) {
+      head.rotation.y += this.bob;
+      head.rotation.x += this.nodPhase;
+    }
+  }
+}
+
+/*** VRM Avatar component – loads model and runs animation loops ***/
 function VRMAvatar({ jawOpen = 0, onLoaded }) {
   const vrmRef = useRef(null);
-  const mixerRef = useRef(null);
-  const clockRef = useRef(new THREE.Clock());
   const { scene } = useThree();
+  const speakingWeight = useRef(0);
 
-  // ─── Smooth animation state refs ───
-  const speakingWeightRef = useRef(0);
-  const nextBlinkRef = useRef(2 + Math.random() * 3);
-  const blinkProgressRef = useRef(-1);
-  // Smoothed bone rotation targets (per-bone damping)
-  const smoothBonesRef = useRef({
-    headX: 0, headY: 0, headZ: 0,
-    neckX: 0, neckY: 0, neckZ: 0,
-    spineX: 0, spineZ: 0,
-    chestX: 0, chestZ: 0,
-    luaX: 0, luaY: 0, luaZ: 0,
-    ruaX: 0, ruaY: 0, ruaZ: 0,
-    llaX: 0, llaY: 0,
-    rlaX: 0, rlaY: 0,
-    lhX: 0, lhZ: 0,
-    rhX: 0, rhZ: 0,
-    // Smoothed mouth visemes
-    mouthAa: 0, mouthOh: 0, mouthIh: 0, mouthEe: 0, mouthOu: 0,
-  });
+  const gestureEngine = useMemo(() => new GestureEngine(), []);
+  const postureEngine = useMemo(() => new PostureEngine(), []);
 
+  // Load VRM model once
   useEffect(() => {
     const loader = new GLTFLoader();
-    loader.register((parser) => new VRMLoaderPlugin(parser));
-
+    loader.register(parser => new VRMLoaderPlugin(parser));
     loader.load(
-      '/models/siti-chan.vrm',
-      (gltf) => {
+      "/models/siti-chan.vrm",
+      gltf => {
         const vrm = gltf.userData.vrm;
         if (!vrm) return;
-
         VRMUtils.removeUnnecessaryVertices(gltf.scene);
         VRMUtils.removeUnnecessaryJoints(gltf.scene);
         VRMUtils.rotateVRM0(vrm);
-
-        vrm.scene.traverse((obj) => {
+        vrm.scene.traverse(obj => {
           if (obj.isMesh) {
             obj.frustumCulled = false;
-            if (obj.material) {
-              obj.material.side = THREE.DoubleSide;
-            }
+            if (obj.material) obj.material.side = THREE.DoubleSide;
           }
         });
-
         vrm.scene.scale.set(2.5, 2.5, 2.5);
         vrm.scene.position.set(0, -2.2, 0);
-
         scene.add(vrm.scene);
         vrmRef.current = vrm;
-
         if (onLoaded) onLoaded();
-        console.log('VRM model loaded successfully');
+        console.log("VRM model loaded successfully");
       },
-      (progress) => {
-        const pct = (progress.loaded / progress.total) * 100;
-        console.log(`Loading VRM: ${pct.toFixed(1)}%`);
-      },
-      (error) => {
-        console.error('Error loading VRM:', error);
-      }
+      undefined,
+      err => console.error("VRM load error", err)
     );
-
     return () => {
       if (vrmRef.current) {
         scene.remove(vrmRef.current.scene);
@@ -87,270 +436,109 @@ function VRMAvatar({ jawOpen = 0, onLoaded }) {
     };
   }, [scene, onLoaded]);
 
+  // Main frame loop
   useFrame((state, delta) => {
-    if (!vrmRef.current) return;
     const vrm = vrmRef.current;
-    const t = state.clock.getElapsedTime();
-    const sb = smoothBonesRef.current;
-
-    // Clamp delta to prevent huge jumps on tab-switch
+    if (!vrm) return;
     const dt = Math.min(delta, 0.05);
+    const targetWeight = jawOpen > 0.02 ? 1 : 0;
+    speakingWeight.current = THREE.MathUtils.lerp(speakingWeight.current, targetWeight, dt * 4);
+    const sw = speakingWeight.current;
 
-    vrm.update(dt);
-
-    // ─── Helper: layered organic noise (non-repeating) ───
-    // Uses irrational frequency ratios so the pattern never exactly repeats
-    const noise = (freq, phase = 0) =>
-      Math.sin(t * freq + phase) * 0.5 +
-      Math.sin(t * freq * 1.618 + phase + 1.3) * 0.3 +
-      Math.sin(t * freq * 2.317 + phase + 2.7) * 0.2;
-
-    // ─── Speaking weight with smooth ease ───
-    const targetWeight = jawOpen > 0.02 ? 1.0 : 0.0;
-    speakingWeightRef.current = THREE.MathUtils.lerp(
-      speakingWeightRef.current, targetWeight, dt * 4
-    );
-    const sw = speakingWeightRef.current;
-
-    // Gesture phrasing: creates natural bursts of gesturing
-    const gesturePhrase = 0.65 + noise(0.4, 5.0) * 0.35;
-    const gw = sw * gesturePhrase;
-
-    // ─── Posture: Spine & Chest ───
-    const spine = vrm.humanoid?.getNormalizedBoneNode('spine');
-    const chest = vrm.humanoid?.getNormalizedBoneNode('chest');
-
-    if (spine) {
-      const idleX = noise(0.3, 0.0) * 0.012;
-      const speakX = noise(0.7, 1.0) * 0.025 + noise(0.25, 3.0) * 0.01;
-      const idleZ = noise(0.2, 4.0) * 0.008;
-      const speakZ = noise(0.5, 2.0) * 0.015;
-      sb.spineX = THREE.MathUtils.lerp(sb.spineX, THREE.MathUtils.lerp(idleX, speakX, sw), dt * 4);
-      sb.spineZ = THREE.MathUtils.lerp(sb.spineZ, THREE.MathUtils.lerp(idleZ, speakZ, sw), dt * 4);
-      spine.rotation.x = sb.spineX;
-      spine.rotation.z = sb.spineZ;
-    }
-    if (chest) {
-      const idleX = noise(0.35, 1.5) * 0.008;
-      const speakX = noise(0.6, 3.5) * 0.018;
-      const idleZ = noise(0.25, 2.0) * 0.005;
-      const speakZ = noise(0.55, 4.5) * 0.012;
-      sb.chestX = THREE.MathUtils.lerp(sb.chestX, THREE.MathUtils.lerp(idleX, speakX, sw), dt * 5);
-      sb.chestZ = THREE.MathUtils.lerp(sb.chestZ, THREE.MathUtils.lerp(idleZ, speakZ, sw), dt * 5);
-      chest.rotation.x = sb.chestX;
-      chest.rotation.z = sb.chestZ;
+    // Eye blinking (original logic retained)
+    if (!vrm._blink) vrm._blink = { next: 2 + Math.random() * 3, progress: -1 };
+    const blink = vrm._blink;
+    if (blink.progress >= 0) {
+      blink.progress += dt;
+      const dur = 0.15;
+      if (blink.progress < dur) {
+        vrm.expressionManager.setValue(VRMExpressionPresetName.Blink, Math.sin((blink.progress / dur) * Math.PI));
+      } else {
+        blink.progress = -1;
+        blink.next = state.clock.getElapsedTime() + (Math.random() < 0.2 ? 0.25 : 2 + Math.random() * 4);
+      }
+    } else if (state.clock.getElapsedTime() >= blink.next) {
+      blink.progress = 0;
     }
 
-    // ─── Head & Neck: Mouse tracking + organic movement ───
-    const head = vrm.humanoid?.getNormalizedBoneNode('head');
-    const neck = vrm.humanoid?.getNormalizedBoneNode('neck');
+    // Lip sync (original logic retained)
+    const visCycle = noise(state.clock.getElapsedTime(), 2.5, 10);
+    const visSlow = noise(state.clock.getElapsedTime(), 0.8, 12);
+    const mouth = { Aa: 0, Oh: 0, Ih: 0, Ee: 0, Ou: 0 };
+    if (jawOpen > 0.01) {
+      const open = jawOpen;
+      mouth.Aa = open * Math.max(0, 0.5 + visCycle * 0.5) * 0.9;
+      mouth.Oh = open * Math.max(0, 0.5 - visCycle * 0.4) * 0.6;
+      mouth.Ih = open * Math.max(0, visSlow * 0.6) * 0.5;
+      mouth.Ee = open * Math.max(0, -visSlow * 0.5) * 0.35;
+      mouth.Ou = open * Math.max(0, visCycle * visSlow) * 0.4;
+    }
+    const mouthSpeed = 10;
+    const smooth = vrm._smoothMouth || (vrm._smoothMouth = { Aa: 0, Oh: 0, Ih: 0, Ee: 0, Ou: 0 });
+    smooth.Aa = THREE.MathUtils.lerp(smooth.Aa, mouth.Aa, dt * mouthSpeed);
+    smooth.Oh = THREE.MathUtils.lerp(smooth.Oh, mouth.Oh, dt * mouthSpeed);
+    smooth.Ih = THREE.MathUtils.lerp(smooth.Ih, mouth.Ih, dt * mouthSpeed);
+    smooth.Ee = THREE.MathUtils.lerp(smooth.Ee, mouth.Ee, dt * mouthSpeed);
+    smooth.Ou = THREE.MathUtils.lerp(smooth.Ou, mouth.Ou, dt * mouthSpeed);
+    vrm.expressionManager.setValue(VRMExpressionPresetName.Aa, smooth.Aa);
+    vrm.expressionManager.setValue(VRMExpressionPresetName.Oh, smooth.Oh);
+    vrm.expressionManager.setValue(VRMExpressionPresetName.Ih, smooth.Ih);
+    vrm.expressionManager.setValue(VRMExpressionPresetName.Ee, smooth.Ee);
+    vrm.expressionManager.setValue(VRMExpressionPresetName.Ou, smooth.Ou);
+
+    // Warm smile
+    const smileIdle = 0.2 + noise(state.clock.getElapsedTime(), 0.15, 6) * 0.06;
+    const smileSpeak = 0.35 + noise(state.clock.getElapsedTime(), 0.3, 7) * 0.08;
+    vrm.expressionManager.setValue(VRMExpressionPresetName.Happy, THREE.MathUtils.lerp(smileIdle, smileSpeak, sw));
+
+    // Mouse look (head & neck)
+    const head = vrm.humanoid?.getNormalizedBoneNode("head");
+    const neck = vrm.humanoid?.getNormalizedBoneNode("neck");
     if (head) {
       const mouseX = state.pointer.x;
       const mouseY = state.pointer.y;
       const lookX = THREE.MathUtils.clamp(-mouseY * 0.12, -0.12, 0.12);
       const lookY = THREE.MathUtils.clamp(mouseX * 0.2, -0.25, 0.25);
-
-      const idleX = noise(0.25, 0.0) * 0.02;
-      const idleY = noise(0.18, 1.0) * 0.015;
-      const idleZ = noise(0.15, 2.0) * 0.012;
-
-      const speakX = noise(1.2, 0.5) * 0.03 + noise(0.4, 3.0) * 0.015;
-      const speakY = noise(0.6, 1.5) * 0.025;
-      const speakZ = noise(0.45, 4.0) * 0.02;
-
+      const idleX = noise(state.clock.getElapsedTime(), 0.25, 0) * 0.02;
+      const idleY = noise(state.clock.getElapsedTime(), 0.18, 1) * 0.015;
+      const idleZ = noise(state.clock.getElapsedTime(), 0.15, 2) * 0.012;
+      const speakX = noise(state.clock.getElapsedTime(), 1.2, 0.5) * 0.03 + noise(state.clock.getElapsedTime(), 0.4, 3) * 0.015;
+      const speakY = noise(state.clock.getElapsedTime(), 0.6, 1.5) * 0.025;
+      const speakZ = noise(state.clock.getElapsedTime(), 0.45, 4) * 0.02;
       const tgtX = THREE.MathUtils.lerp(idleX, speakX, sw) + lookX;
       const tgtY = THREE.MathUtils.lerp(idleY, speakY, sw) + lookY;
       const tgtZ = THREE.MathUtils.lerp(idleZ, speakZ, sw);
-
-      sb.headX = THREE.MathUtils.lerp(sb.headX, tgtX, dt * 4);
-      sb.headY = THREE.MathUtils.lerp(sb.headY, tgtY, dt * 4);
-      sb.headZ = THREE.MathUtils.lerp(sb.headZ, tgtZ, dt * 4);
-      head.rotation.x = sb.headX;
-      head.rotation.y = sb.headY;
-      head.rotation.z = sb.headZ;
-
-      if (neck) {
-        sb.neckX = THREE.MathUtils.lerp(sb.neckX, sb.headX * 0.35, dt * 3);
-        sb.neckY = THREE.MathUtils.lerp(sb.neckY, sb.headY * 0.35, dt * 3);
-        sb.neckZ = THREE.MathUtils.lerp(sb.neckZ, sb.headZ * 0.35, dt * 3);
-        neck.rotation.x = sb.neckX;
-        neck.rotation.y = sb.neckY;
-        neck.rotation.z = sb.neckZ;
-      }
+      head.rotation.set(tgtX, tgtY, tgtZ);
+      if (neck) neck.rotation.set(tgtX * 0.35, tgtY * 0.35, tgtZ * 0.35);
     }
 
-    // ─── Eye Blinking: randomized intervals with smooth curve ───
-    if (vrm.expressionManager) {
-      let blinkVal = 0;
-      if (blinkProgressRef.current >= 0) {
-        blinkProgressRef.current += dt;
-        const bp = blinkProgressRef.current;
-        const blinkDuration = 0.15;
-        if (bp < blinkDuration) {
-          blinkVal = Math.sin((bp / blinkDuration) * Math.PI);
-        } else {
-          blinkProgressRef.current = -1;
-          const isDouble = Math.random() < 0.2;
-          nextBlinkRef.current = t + (isDouble ? 0.25 : 2 + Math.random() * 4);
-        }
-      } else if (t >= nextBlinkRef.current) {
-        blinkProgressRef.current = 0;
-      }
-      vrm.expressionManager.setValue(VRMExpressionPresetName.Blink, blinkVal);
-    }
+    // Update engines
+    gestureEngine.update(dt, sw);
+    gestureEngine.applyToVRM(vrm, sw);
+    postureEngine.update(dt, sw, state.pointer);
+    postureEngine.applyToVRM(vrm);
 
-    // ─── Lip Sync: multi-viseme blending ───
-    if (vrm.expressionManager) {
-      // Use time-varying modulation to cycle between mouth shapes
-      // This creates the illusion of different phonemes
-      const visemeCycle = noise(2.5, 10.0); // fast modulation: -1 to 1
-      const visemeSlow = noise(0.8, 12.0);  // slower shape variation
-
-      let targetAa = 0, targetOh = 0, targetIh = 0, targetEe = 0, targetOu = 0;
-
-      if (jawOpen > 0.01) {
-        const open = jawOpen;
-
-        // Cycle between viseme shapes based on noise
-        // Aa = wide open (like "ah")
-        targetAa = open * Math.max(0, 0.5 + visemeCycle * 0.5) * 0.9;
-        // Oh = rounded (like "oh")
-        targetOh = open * Math.max(0, 0.5 - visemeCycle * 0.4) * 0.6;
-        // Ih = narrow (like "ee" / "ih")
-        targetIh = open * Math.max(0, visemeSlow * 0.6) * 0.5;
-        // Ee = smile-stretch (like "ee")
-        targetEe = open * Math.max(0, -visemeSlow * 0.5) * 0.35;
-        // Ou = pursed (like "oo")
-        targetOu = open * Math.max(0, visemeCycle * visemeSlow) * 0.4;
-      }
-
-      // Smooth each viseme independently
-      const mouthSpeed = 10;
-      sb.mouthAa = THREE.MathUtils.lerp(sb.mouthAa, targetAa, dt * mouthSpeed);
-      sb.mouthOh = THREE.MathUtils.lerp(sb.mouthOh, targetOh, dt * mouthSpeed);
-      sb.mouthIh = THREE.MathUtils.lerp(sb.mouthIh, targetIh, dt * mouthSpeed);
-      sb.mouthEe = THREE.MathUtils.lerp(sb.mouthEe, targetEe, dt * mouthSpeed);
-      sb.mouthOu = THREE.MathUtils.lerp(sb.mouthOu, targetOu, dt * mouthSpeed);
-
-      vrm.expressionManager.setValue(VRMExpressionPresetName.Aa, sb.mouthAa);
-      vrm.expressionManager.setValue(VRMExpressionPresetName.Oh, sb.mouthOh);
-      vrm.expressionManager.setValue(VRMExpressionPresetName.Ih, sb.mouthIh);
-      vrm.expressionManager.setValue(VRMExpressionPresetName.Ee, sb.mouthEe);
-      vrm.expressionManager.setValue(VRMExpressionPresetName.Ou, sb.mouthOu);
-    }
-
-    // ─── Warm smile (slightly brighter when speaking) ───
-    if (vrm.expressionManager) {
-      const smileIdle = 0.2 + noise(0.15, 6.0) * 0.06;
-      const smileSpeak = 0.35 + noise(0.3, 7.0) * 0.08;
-      vrm.expressionManager.setValue(
-        VRMExpressionPresetName.Happy,
-        THREE.MathUtils.lerp(smileIdle, smileSpeak, sw)
-      );
-    }
-
-    // ─── Arms: organic idle + conversational gestures ───
-    const leftUpperArm = vrm.humanoid?.getNormalizedBoneNode('leftUpperArm');
-    const rightUpperArm = vrm.humanoid?.getNormalizedBoneNode('rightUpperArm');
-    const leftLowerArm = vrm.humanoid?.getNormalizedBoneNode('leftLowerArm');
-    const rightLowerArm = vrm.humanoid?.getNormalizedBoneNode('rightLowerArm');
-    const leftHand = vrm.humanoid?.getNormalizedBoneNode('leftHand');
-    const rightHand = vrm.humanoid?.getNormalizedBoneNode('rightHand');
-
-    if (leftUpperArm) {
-      const idleZ = 1.25 + noise(0.2, 0.0) * 0.02;
-      const idleX = 0.08 + noise(0.15, 1.0) * 0.01;
-      const idleY = noise(0.1, 2.0) * 0.01;
-      const speakZ = 0.95 + noise(0.35, 3.0) * 0.06 * gesturePhrase;
-      const speakX = 0.4 + noise(0.5, 4.0) * 0.1 * gesturePhrase;
-      const speakY = -0.4 + noise(0.3, 5.0) * 0.06 * gesturePhrase;
-      sb.luaZ = THREE.MathUtils.lerp(sb.luaZ, THREE.MathUtils.lerp(idleZ, speakZ, sw), dt * 3.5);
-      sb.luaX = THREE.MathUtils.lerp(sb.luaX, THREE.MathUtils.lerp(idleX, speakX, sw), dt * 3.5);
-      sb.luaY = THREE.MathUtils.lerp(sb.luaY, THREE.MathUtils.lerp(idleY, speakY, sw), dt * 3.5);
-      leftUpperArm.rotation.z = sb.luaZ;
-      leftUpperArm.rotation.x = sb.luaX;
-      leftUpperArm.rotation.y = sb.luaY;
-    }
-
-    if (rightUpperArm) {
-      const idleZ = -1.25 - noise(0.22, 0.5) * 0.02;
-      const idleX = 0.08 - noise(0.17, 1.5) * 0.01;
-      const idleY = noise(0.12, 2.5) * 0.01;
-      const speakZ = -0.95 - noise(0.4, 3.5) * 0.05 * gesturePhrase;
-      const speakX = 0.4 + noise(0.45, 4.5) * 0.08 * gesturePhrase;
-      const speakY = 0.4 - noise(0.35, 5.5) * 0.06 * gesturePhrase;
-      sb.ruaZ = THREE.MathUtils.lerp(sb.ruaZ, THREE.MathUtils.lerp(idleZ, speakZ, sw), dt * 3.5);
-      sb.ruaX = THREE.MathUtils.lerp(sb.ruaX, THREE.MathUtils.lerp(idleX, speakX, sw), dt * 3.5);
-      sb.ruaY = THREE.MathUtils.lerp(sb.ruaY, THREE.MathUtils.lerp(idleY, speakY, sw), dt * 3.5);
-      rightUpperArm.rotation.z = sb.ruaZ;
-      rightUpperArm.rotation.x = sb.ruaX;
-      rightUpperArm.rotation.y = sb.ruaY;
-    }
-
-    if (leftLowerArm) {
-      const idleX = -0.15 + noise(0.12, 0.0) * 0.02;
-      const idleY = 0.15;
-      const speakX = -0.55 + noise(0.6, 1.0) * 0.12 * gesturePhrase;
-      const speakY = 0.9 + noise(0.5, 2.0) * 0.12 * gesturePhrase;
-      sb.llaX = THREE.MathUtils.lerp(sb.llaX, THREE.MathUtils.lerp(idleX, speakX, sw), dt * 3.5);
-      sb.llaY = THREE.MathUtils.lerp(sb.llaY, THREE.MathUtils.lerp(idleY, speakY, sw), dt * 3.5);
-      leftLowerArm.rotation.x = sb.llaX;
-      leftLowerArm.rotation.y = sb.llaY;
-    }
-
-    if (rightLowerArm) {
-      const idleX = -0.15 - noise(0.14, 0.5) * 0.02;
-      const idleY = -0.15;
-      const speakX = -0.55 - noise(0.55, 1.5) * 0.1 * gesturePhrase;
-      const speakY = -0.9 + noise(0.45, 2.5) * 0.12 * gesturePhrase;
-      sb.rlaX = THREE.MathUtils.lerp(sb.rlaX, THREE.MathUtils.lerp(idleX, speakX, sw), dt * 3.5);
-      sb.rlaY = THREE.MathUtils.lerp(sb.rlaY, THREE.MathUtils.lerp(idleY, speakY, sw), dt * 3.5);
-      rightLowerArm.rotation.x = sb.rlaX;
-      rightLowerArm.rotation.y = sb.rlaY;
-    }
-
-    if (leftHand) {
-      const idleX = noise(0.1, 3.0) * 0.015;
-      const speakX = noise(0.8, 4.0) * 0.12 * gesturePhrase;
-      const speakZ = noise(0.65, 5.0) * 0.15 * gesturePhrase;
-      sb.lhX = THREE.MathUtils.lerp(sb.lhX, THREE.MathUtils.lerp(idleX, speakX, sw), dt * 4);
-      sb.lhZ = THREE.MathUtils.lerp(sb.lhZ, THREE.MathUtils.lerp(0, speakZ, sw), dt * 4);
-      leftHand.rotation.x = sb.lhX;
-      leftHand.rotation.z = sb.lhZ;
-    }
-
-    if (rightHand) {
-      const idleX = noise(0.11, 3.5) * 0.015;
-      const speakX = noise(0.75, 4.5) * 0.1 * gesturePhrase;
-      const speakZ = noise(0.7, 5.5) * 0.12 * gesturePhrase;
-      sb.rhX = THREE.MathUtils.lerp(sb.rhX, THREE.MathUtils.lerp(idleX, speakX, sw), dt * 4);
-      sb.rhZ = THREE.MathUtils.lerp(sb.rhZ, THREE.MathUtils.lerp(0, speakZ, sw), dt * 4);
-      rightHand.rotation.x = sb.rhX;
-      rightHand.rotation.z = sb.rhZ;
-    }
+    vrm.update(dt);
   });
 
-  return null; // VRM is added directly to the scene
+  return null;
 }
 
-// Loading spinner shown while VRM loads
+/*** Simple loading spinner ***/
 function LoadingIndicator() {
   const meshRef = useRef();
-
-  useFrame((state) => {
+  useFrame(state => {
     if (meshRef.current) {
       meshRef.current.rotation.y = state.clock.getElapsedTime() * 2;
       meshRef.current.rotation.x = Math.sin(state.clock.getElapsedTime()) * 0.3;
     }
   });
-
   return (
     <group position={[0, 1, 0]}>
       <mesh ref={meshRef}>
         <torusGeometry args={[0.2, 0.05, 16, 32]} />
         <meshStandardMaterial color="#f472b6" emissive="#f472b6" emissiveIntensity={0.5} />
       </mesh>
-      {/* Small static spheres */}
       <mesh position={[0, -0.4, 0]}>
         <sphereGeometry args={[0.03, 16, 16]} />
         <meshStandardMaterial color="#a78bfa" emissive="#a78bfa" emissiveIntensity={0.4} />
@@ -359,37 +547,25 @@ function LoadingIndicator() {
   );
 }
 
+/*** Main exported component ***/
 export default function AvatarScene({ jawOpen }) {
   const [isLoaded, setIsLoaded] = useState(false);
-
-  const handleLoaded = useCallback(() => {
-    setIsLoaded(true);
-  }, []);
-
+  const handleLoaded = useCallback(() => setIsLoaded(true), []);
   return (
     <div className="avatar-canvas-wrapper">
       <Canvas
         camera={{ position: [0, 2.0, 5], fov: 35 }}
-        gl={{
-          antialias: true,
-          toneMapping: THREE.ACESFilmicToneMapping,
-          toneMappingExposure: 1.2
-        }}
+        gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.2 }}
       >
-        {/* Soft anime-style lighting */}
         <ambientLight intensity={1.8} color="#fff5f9" />
         <directionalLight position={[3, 5, 4]} intensity={1.6} color="#ffffff" castShadow />
         <directionalLight position={[-3, 3, 2]} intensity={0.7} color="#e8d5ff" />
         <pointLight position={[0, 2, 3]} intensity={0.5} color="#ffd6e8" />
-        {/* Rim light for anime glow effect */}
         <pointLight position={[0, 1.5, -2]} intensity={0.4} color="#b388ff" />
-
         <Suspense fallback={<LoadingIndicator />}>
           <VRMAvatar jawOpen={jawOpen} onLoaded={handleLoaded} />
         </Suspense>
-
         {!isLoaded && <LoadingIndicator />}
-
         <OrbitControls
           enableZoom={true}
           minDistance={0.5}

@@ -25,7 +25,7 @@ export const metadata = {
   openGraph: {
     title: 'Siti-Chan: 3D Talking AI Companion 🌸',
     description: 'Interaksi langsung dengan karakter anime 3D interaktif yang didukung oleh DeepSeek LLM dan Kokoro TTS suara lokal.',
-    url: 'https://siti-chan.example.com',
+    url: 'https://siti-chan.vercel.app',
     siteName: 'Siti-Chan',
     locale: 'id_ID',
     type: 'website',
